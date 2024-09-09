@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"github.com/belphemur/CBZOptimizer/manga"
+	"github.com/belphemur/CBZOptimizer/utils/errs"
 	"os"
 	"time"
 )
@@ -14,14 +15,14 @@ func WriteChapterToCBZ(chapter *manga.Chapter, outputFilePath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create .cbz file: %w", err)
 	}
-	defer zipFile.Close()
+	defer errs.Capture(&err, zipFile.Close, "failed to close .cbz file")
 
 	// Create a new ZIP writer
 	zipWriter := zip.NewWriter(zipFile)
 	if err != nil {
 		return err
 	}
-	defer zipWriter.Close()
+	defer errs.Capture(&err, zipWriter.Close, "failed to close .cbz writer")
 
 	// Write each page to the ZIP archive
 	for _, page := range chapter.Pages {
