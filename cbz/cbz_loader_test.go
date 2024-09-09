@@ -24,7 +24,7 @@ func TestLoadChapter(t *testing.T) {
 		},
 		{
 			name:               "Converted Chapter",
-			filePath:           "../testdata/Chapter 1_converted.cbz",
+			filePath:           "../testdata/Chapter 10_converted.cbz",
 			expectedPages:      107,
 			expectedSeries:     "<Series>Boundless Necromancer</Series>",
 			expectedConversion: true,
