@@ -1,12 +1,14 @@
 module github.com/belphemur/CBZOptimizer/v2
 
-go 1.23.0
+go 1.23.1
+
+toolchain go1.23.5
 
 require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/kolesa-team/go-webp v1.0.4
 	github.com/oliamb/cutter v0.2.2
-	github.com/pablodz/inotifywaitgo v0.0.7
+	github.com/pablodz/inotifywaitgo v0.0.9
 	github.com/samber/lo v1.48.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
