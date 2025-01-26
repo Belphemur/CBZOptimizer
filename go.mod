@@ -7,7 +7,7 @@ require (
 	github.com/kolesa-team/go-webp v1.0.4
 	github.com/oliamb/cutter v0.2.2
 	github.com/pablodz/inotifywaitgo v0.0.7
-	github.com/samber/lo v1.47.0
+	github.com/samber/lo v1.48.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/thediveo/enumflag/v2 v2.0.7
