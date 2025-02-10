@@ -13,7 +13,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/thediveo/enumflag/v2 v2.0.7
-	golang.org/x/exp v0.0.0-20250207012021-f9890c6ad9f3
+	golang.org/x/exp v0.0.0-20250210185358-939b2ce775ac
 	golang.org/x/image v0.24.0
 )
 
