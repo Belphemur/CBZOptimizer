@@ -9,7 +9,7 @@ require (
 	github.com/belphemur/go-webpbin/v2 v2.0.0
 	github.com/oliamb/cutter v0.2.2
 	github.com/pablodz/inotifywaitgo v0.0.9
-	github.com/samber/lo v1.49.1
+	github.com/samber/lo v1.50.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
