@@ -15,7 +15,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	github.com/thediveo/enumflag/v2 v2.0.7
-	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b
+	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc
 	golang.org/x/image v0.29.0
 )
 
