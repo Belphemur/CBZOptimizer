@@ -2,7 +2,7 @@ module github.com/belphemur/CBZOptimizer/v2
 
 go 1.24
 
-toolchain go1.24.5
+toolchain go1.24.6
 
 require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
