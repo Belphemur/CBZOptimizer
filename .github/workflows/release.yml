@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0 # this is important, otherwise it won't checkout the full tree (i.e. no previous tags)
       - uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: 1.25
           cache: true
       - uses: sigstore/cosign-installer@v3.9.2         # installs cosign
       - uses: anchore/sbom-action/download-syft@v0.20.4 # installs syft
