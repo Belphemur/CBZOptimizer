@@ -1,6 +1,6 @@
 module github.com/belphemur/CBZOptimizer/v2
 
-go 1.24
+go 1.24.0
 
 toolchain go1.25.0
 
@@ -15,7 +15,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	github.com/thediveo/enumflag/v2 v2.0.7
-	golang.org/x/exp v0.0.0-20250811191247-51f88131bc50
+	golang.org/x/exp v0.0.0-20250813145105-42675adae3e6
 	golang.org/x/image v0.30.0
 )
 
