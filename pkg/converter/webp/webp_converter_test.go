@@ -295,15 +295,16 @@ func TestConverter_convertPage(t *testing.T) {
 	}
 }
 
-func TestConverter_convertPage_WithCorruptedImage(t *testing.T) {
+func TestConverter_convertPage_EncodingError(t *testing.T) {
 	converter := New()
 	err := converter.PrepareConverter()
 	require.NoError(t, err)
 
-	// Create a corrupted PNG image by creating a page with invalid data
+	// Create a test case with nil image to test encoding error path
+	// when isToBeConverted is true but the image is nil, simulating a failure in the encoding step
 	corruptedPage := &manga.Page{
 		Index:     1,
-		Contents:  &bytes.Buffer{}, // Empty buffer - should cause decode error
+		Contents:  &bytes.Buffer{}, // Empty buffer
 		Extension: ".png",
 		Size:      0,
 	}
@@ -312,7 +313,7 @@ func TestConverter_convertPage_WithCorruptedImage(t *testing.T) {
 
 	converted, err := converter.convertPage(container, 80)
 
-	// This should return nil container and error because decode will fail with "image: unknown format"
+	// This should return nil container and error because encoding will fail with nil image
 	assert.Error(t, err)
 	assert.Nil(t, converted)
 }
