@@ -5,6 +5,7 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"sync"
@@ -44,6 +45,11 @@ func encodeImage(img image.Image, format string) (*bytes.Buffer, string, error) 
 			return nil, "", err
 		}
 		return buf, ".jpg", nil
+	case "gif":
+		if err := gif.Encode(buf, img, nil); err != nil {
+			return nil, "", err
+		}
+		return buf, ".gif", nil
 	case "webp":
 		PrepareEncoder()
 		if err := Encode(buf, img, 80); err != nil {
@@ -131,10 +137,11 @@ func TestConverter_ConvertChapter(t *testing.T) {
 			pages: []*manga.Page{
 				createTestPage(t, 1, 800, 1200, "png"),
 				createTestPage(t, 2, 800, 1200, "jpeg"),
+				createTestPage(t, 3, 800, 1200, "gif"),
 			},
 			split:       false,
 			expectSplit: false,
-			numExpected: 2,
+			numExpected: 3,
 		},
 		{
 			name:        "Tall image with split enabled",
@@ -147,7 +154,7 @@ func TestConverter_ConvertChapter(t *testing.T) {
 			name:        "Tall image without split",
 			pages:       []*manga.Page{createTestPage(t, 1, 800, webpMaxHeight+100, "png")},
 			split:       false,
-			expectError: true,
+			expectError: false,
 			numExpected: 1,
 		},
 	}
@@ -233,6 +240,12 @@ func TestConverter_convertPage(t *testing.T) {
 		{
 			name:            "Convert PNG to WebP",
 			format:          "png",
+			isToBeConverted: true,
+			expectWebP:      true,
+		},
+		{
+			name:            "Convert GIF to WebP",
+			format:          "gif",
 			isToBeConverted: true,
 			expectWebP:      true,
 		},
@@ -333,8 +346,8 @@ func TestConverter_ConvertChapter_Timeout(t *testing.T) {
 	// Create a test chapter with a few pages
 	pages := []*manga.Page{
 		createTestPage(t, 1, 800, 1200, "jpeg"),
-		createTestPage(t, 2, 800, 1200, "jpeg"),
-		createTestPage(t, 3, 800, 1200, "jpeg"),
+		createTestPage(t, 2, 800, 1200, "png"),
+		createTestPage(t, 3, 800, 1200, "gif"),
 	}
 
 	chapter := &manga.Chapter{

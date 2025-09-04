@@ -113,8 +113,9 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 
 	// Channel to manage the files to process
 	fileChan := make(chan string)
-	// Channel to collect errors
-	errorChan := make(chan error, parallelism)
+	// Slice to collect errors with mutex for thread safety
+	var errs []error
+	var errMutex sync.Mutex
 
 	// WaitGroup to wait for all goroutines to finish
 	var wg sync.WaitGroup
@@ -138,7 +139,9 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 				})
 				if err != nil {
 					log.Error().Int("worker_id", workerID).Str("file_path", path).Err(err).Msg("Worker encountered error")
-					errorChan <- fmt.Errorf("error processing file %s: %w", path, err)
+					errMutex.Lock()
+					errs = append(errs, fmt.Errorf("error processing file %s: %w", path, err))
+					errMutex.Unlock()
 				} else {
 					log.Debug().Int("worker_id", workerID).Str("file_path", path).Msg("Worker completed file successfully")
 				}
@@ -177,13 +180,6 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 	log.Debug().Msg("File channel closed, waiting for workers to complete")
 	wg.Wait() // Wait for all workers to finish
 	log.Debug().Msg("All workers completed")
-	close(errorChan) // Close the error channel
-
-	var errs []error
-	for err := range errorChan {
-		errs = append(errs, err)
-		log.Error().Err(err).Msg("Collected processing error")
-	}
 
 	if len(errs) > 0 {
 		log.Error().Int("error_count", len(errs)).Msg("Command completed with errors")
