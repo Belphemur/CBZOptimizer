@@ -44,6 +44,11 @@ func TestConvertChapter(t *testing.T) {
 			genTestChapter: genMixSmallHuge,
 			split:          false,
 		},
+		{
+			name:           "Two corrupted pages",
+			genTestChapter: genTwoCorrupted,
+			split:          false,
+		},
 	}
 	// Load test genTestChapter from testdata
 	temp, err := os.CreateTemp("", "test_chapter_*.cbz")
@@ -219,4 +224,65 @@ func genMixSmallHuge(path string, isSplit bool) (*manga.Chapter, []string, error
 		FilePath: path,
 		Pages:    pages,
 	}, []string{".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".jpg", ".jpg"}, nil
+}
+
+func genTwoCorrupted(path string, isSplit bool) (*manga.Chapter, []string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer errs.Capture(&err, file.Close, "failed to close file")
+
+	var pages []*manga.Page
+	numPages := 5
+	corruptedIndices := []int{2, 4} // Pages 2 and 4 are too tall to convert without splitting
+	for i := 0; i < numPages; i++ {
+		var buf *bytes.Buffer
+		var ext string
+		isCorrupted := false
+		for _, ci := range corruptedIndices {
+			if i == ci {
+				isCorrupted = true
+				break
+			}
+		}
+		if isCorrupted {
+			img := image.NewRGBA(image.Rect(0, 0, 1, 17000)) // Too tall for WebP without split
+			buf = new(bytes.Buffer)
+			err = jpeg.Encode(buf, img, nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			ext = ".jpg"
+		} else {
+			img := image.NewRGBA(image.Rect(0, 0, 300, 1000))
+			buf = new(bytes.Buffer)
+			err = jpeg.Encode(buf, img, nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			ext = ".jpg"
+		}
+		page := &manga.Page{
+			Index:     uint16(i),
+			Contents:  buf,
+			Extension: ext,
+		}
+		pages = append(pages, page)
+	}
+
+	// Expected: small pages to .webp, corrupted large pages to .jpg (kept as is)
+	expectedExtensions := []string{".webp", ".webp", ".jpg", ".webp", ".jpg"}
+	if isSplit {
+		// With split, even large pages get split and converted
+		// Small pages: 1 each -> 3
+		// Large pages: 9 each (17000 height, cropHeight 2000) -> 2*9=18
+		// Total: 21
+		expectedExtensions = []string{".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp"}
+	}
+
+	return &manga.Chapter{
+		FilePath: path,
+		Pages:    pages,
+	}, expectedExtensions, nil
 }
