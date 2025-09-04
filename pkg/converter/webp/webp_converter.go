@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
 	"runtime"
@@ -167,19 +168,24 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 
 			splitNeeded, img, format, err := converter.checkPageNeedsSplit(page, split)
 			if err != nil {
+				var pageIgnoredError *converterrors.PageIgnoredError
+				if errors.As(err, &pageIgnoredError) {
+					log.Info().Err(err).Msg("Page ignored due to image decode error")
+				}
+
 				select {
 				case errChan <- err:
 				case <-ctx.Done():
 					return
 				}
-				if img != nil {
-					wgConvertedPages.Add(1)
-					select {
-					case pagesChan <- manga.NewContainer(page, img, format, false):
-					case <-ctx.Done():
-						return
-					}
+
+				wgConvertedPages.Add(1)
+				select {
+				case pagesChan <- manga.NewContainer(page, img, format, false):
+				case <-ctx.Done():
+					return
 				}
+
 				return
 			}
 
@@ -258,6 +264,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		log.Debug().
 			Str("chapter", chapter.FilePath).
 			Int("error_count", len(errList)).
+			Err(errors.Join(errList...)).
 			Msg("Conversion completed with errors")
 	} else {
 		log.Debug().
@@ -357,7 +364,7 @@ func (converter *Converter) checkPageNeedsSplit(page *manga.Page, splitRequested
 	img, format, err := image.Decode(reader)
 	if err != nil {
 		log.Debug().Uint16("page_index", page.Index).Err(err).Msg("Failed to decode page image")
-		return false, nil, format, err
+		return false, nil, format, converterrors.NewPageIgnored(fmt.Sprintf("page %d: failed to decode image (%s)", page.Index, err.Error()))
 	}
 
 	bounds := img.Bounds()

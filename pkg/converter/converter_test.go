@@ -10,53 +10,48 @@ import (
 
 	"github.com/belphemur/CBZOptimizer/v2/internal/manga"
 	"github.com/belphemur/CBZOptimizer/v2/internal/utils/errs"
-	"github.com/belphemur/CBZOptimizer/v2/pkg/converter/constant"
-	"golang.org/x/exp/slices"
 )
 
 func TestConvertChapter(t *testing.T) {
 
 	testCases := []struct {
-		name                 string
-		genTestChapter       func(path string) (*manga.Chapter, error)
-		split                bool
-		expectFailure        []constant.ConversionFormat
-		expectPartialSuccess []constant.ConversionFormat
+		name           string
+		genTestChapter func(path string, isSplit bool) (*manga.Chapter, []string, error)
+		split          bool
+		expectError    bool
 	}{
 		{
-			name:                 "All split pages",
-			genTestChapter:       genHugePage,
-			split:                true,
-			expectFailure:        []constant.ConversionFormat{},
-			expectPartialSuccess: []constant.ConversionFormat{},
+			name:           "All split pages",
+			genTestChapter: genHugePage,
+			split:          true,
 		},
 		{
-			name:                 "Big Pages, no split",
-			genTestChapter:       genHugePage,
-			split:                false,
-			expectFailure:        []constant.ConversionFormat{constant.WebP},
-			expectPartialSuccess: []constant.ConversionFormat{},
+			name:           "Big Pages, no split",
+			genTestChapter: genHugePage,
+			split:          false,
+			expectError:    true,
 		},
 		{
-			name:                 "No split pages",
-			genTestChapter:       genSmallPages,
-			split:                false,
-			expectFailure:        []constant.ConversionFormat{},
-			expectPartialSuccess: []constant.ConversionFormat{},
+			name:           "No split pages",
+			genTestChapter: genSmallPages,
+			split:          false,
 		},
 		{
-			name:                 "Mix of split and no split pages",
-			genTestChapter:       genMixSmallBig,
-			split:                true,
-			expectFailure:        []constant.ConversionFormat{},
-			expectPartialSuccess: []constant.ConversionFormat{},
+			name:           "Mix of split and no split pages",
+			genTestChapter: genMixSmallBig,
+			split:          true,
 		},
 		{
-			name:                 "Mix of Huge and small page",
-			genTestChapter:       genMixSmallHuge,
-			split:                false,
-			expectFailure:        []constant.ConversionFormat{},
-			expectPartialSuccess: []constant.ConversionFormat{constant.WebP},
+			name:           "Mix of Huge and small page",
+			genTestChapter: genMixSmallHuge,
+			split:          false,
+			expectError:    true,
+		},
+		{
+			name:           "Two corrupted pages",
+			genTestChapter: genTwoCorrupted,
+			split:          false,
+			expectError:    true,
 		},
 	}
 	// Load test genTestChapter from testdata
@@ -74,7 +69,7 @@ func TestConvertChapter(t *testing.T) {
 		t.Run(converter.Format().String(), func(t *testing.T) {
 			for _, tc := range testCases {
 				t.Run(tc.name, func(t *testing.T) {
-					chapter, err := tc.genTestChapter(temp.Name())
+					chapter, expectedExtensions, err := tc.genTestChapter(temp.Name(), tc.split)
 					if err != nil {
 						t.Fatalf("failed to load test genTestChapter: %v", err)
 					}
@@ -86,31 +81,23 @@ func TestConvertChapter(t *testing.T) {
 					}
 
 					convertedChapter, err := converter.ConvertChapter(context.Background(), chapter, quality, tc.split, progress)
-					if err != nil {
-						if convertedChapter != nil && slices.Contains(tc.expectPartialSuccess, converter.Format()) {
-							t.Logf("Partial success to convert genTestChapter: %v", err)
-							return
-						}
-						if slices.Contains(tc.expectFailure, converter.Format()) {
-							t.Logf("Expected failure to convert genTestChapter: %v", err)
-							return
-						}
+					if err != nil && !tc.expectError {
 						t.Fatalf("failed to convert genTestChapter: %v", err)
-					} else if slices.Contains(tc.expectFailure, converter.Format()) {
-						t.Fatalf("expected failure to convert genTestChapter didn't happen")
 					}
 
 					if len(convertedChapter.Pages) == 0 {
 						t.Fatalf("no pages were converted")
 					}
 
-					if len(convertedChapter.Pages) != len(chapter.Pages) {
-						t.Fatalf("converted chapter has different number of pages")
+					if len(convertedChapter.Pages) != len(expectedExtensions) {
+						t.Fatalf("converted chapter has %d pages but expected %d", len(convertedChapter.Pages), len(expectedExtensions))
 					}
 
-					for _, page := range convertedChapter.Pages {
-						if page.Extension != ".webp" {
-							t.Errorf("page %d was not converted to webp format", page.Index)
+					// Check each page's extension against the expected array
+					for i, page := range convertedChapter.Pages {
+						expectedExt := expectedExtensions[i]
+						if page.Extension != expectedExt {
+							t.Errorf("page %d has extension %s but expected %s", page.Index, page.Extension, expectedExt)
 						}
 					}
 				})
@@ -119,39 +106,43 @@ func TestConvertChapter(t *testing.T) {
 	}
 }
 
-func genHugePage(path string) (*manga.Chapter, error) {
+func genHugePage(path string, isSplit bool) (*manga.Chapter, []string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer errs.Capture(&err, file.Close, "failed to close file")
 
 	var pages []*manga.Page
-	for i := 0; i < 1; i++ { // Assuming there are 5 pages for the test
-		img := image.NewRGBA(image.Rect(0, 0, 1, 17000))
-		buf := new(bytes.Buffer)
-		err := jpeg.Encode(buf, img, nil)
-		if err != nil {
-			return nil, err
-		}
-		page := &manga.Page{
-			Index:     uint16(i),
-			Contents:  buf,
-			Extension: ".jpg",
-		}
-		pages = append(pages, page)
+	expectedExtensions := []string{".jpg"} // One image that's generated as JPEG
+	if isSplit {
+		expectedExtensions = []string{".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp"}
 	}
+
+	// Create one tall page
+	img := image.NewRGBA(image.Rect(0, 0, 1, 17000))
+	buf := new(bytes.Buffer)
+	err = jpeg.Encode(buf, img, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	page := &manga.Page{
+		Index:     0,
+		Contents:  buf,
+		Extension: ".jpg",
+	}
+	pages = append(pages, page)
 
 	return &manga.Chapter{
 		FilePath: path,
 		Pages:    pages,
-	}, nil
+	}, expectedExtensions, nil
 }
 
-func genSmallPages(path string) (*manga.Chapter, error) {
+func genSmallPages(path string, isSplit bool) (*manga.Chapter, []string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer errs.Capture(&err, file.Close, "failed to close file")
 
@@ -159,9 +150,9 @@ func genSmallPages(path string) (*manga.Chapter, error) {
 	for i := 0; i < 5; i++ { // Assuming there are 5 pages for the test
 		img := image.NewRGBA(image.Rect(0, 0, 300, 1000))
 		buf := new(bytes.Buffer)
-		err := jpeg.Encode(buf, img, nil)
+		err = jpeg.Encode(buf, img, nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		page := &manga.Page{
 			Index:     uint16(i),
@@ -174,13 +165,13 @@ func genSmallPages(path string) (*manga.Chapter, error) {
 	return &manga.Chapter{
 		FilePath: path,
 		Pages:    pages,
-	}, nil
+	}, []string{".webp", ".webp", ".webp", ".webp", ".webp"}, nil
 }
 
-func genMixSmallBig(path string) (*manga.Chapter, error) {
+func genMixSmallBig(path string, isSplit bool) (*manga.Chapter, []string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer errs.Capture(&err, file.Close, "failed to close file")
 
@@ -190,7 +181,7 @@ func genMixSmallBig(path string) (*manga.Chapter, error) {
 		buf := new(bytes.Buffer)
 		err := jpeg.Encode(buf, img, nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		page := &manga.Page{
 			Index:     uint16(i),
@@ -199,17 +190,21 @@ func genMixSmallBig(path string) (*manga.Chapter, error) {
 		}
 		pages = append(pages, page)
 	}
+	expectedExtensions := []string{".webp", ".webp", ".webp", ".webp", ".webp"}
+	if isSplit {
+		expectedExtensions = []string{".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp"}
+	}
 
 	return &manga.Chapter{
 		FilePath: path,
 		Pages:    pages,
-	}, nil
+	}, expectedExtensions, nil
 }
 
-func genMixSmallHuge(path string) (*manga.Chapter, error) {
+func genMixSmallHuge(path string, isSplit bool) (*manga.Chapter, []string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer errs.Capture(&err, file.Close, "failed to close file")
 
@@ -219,7 +214,7 @@ func genMixSmallHuge(path string) (*manga.Chapter, error) {
 		buf := new(bytes.Buffer)
 		err := jpeg.Encode(buf, img, nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		page := &manga.Page{
 			Index:     uint16(i),
@@ -232,5 +227,55 @@ func genMixSmallHuge(path string) (*manga.Chapter, error) {
 	return &manga.Chapter{
 		FilePath: path,
 		Pages:    pages,
-	}, nil
+	}, []string{".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".jpg", ".jpg"}, nil
+}
+
+func genTwoCorrupted(path string, isSplit bool) (*manga.Chapter, []string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer errs.Capture(&err, file.Close, "failed to close file")
+
+	var pages []*manga.Page
+	numPages := 5
+	corruptedIndices := []int{2, 4} // Pages 2 and 4 are too tall to convert without splitting
+	for i := 0; i < numPages; i++ {
+		var buf *bytes.Buffer
+		var ext string
+		isCorrupted := false
+		for _, ci := range corruptedIndices {
+			if i == ci {
+				isCorrupted = true
+				break
+			}
+		}
+		if isCorrupted {
+			buf = bytes.NewBufferString("corrupted data") // Invalid data, can't decode as image
+			ext = ".jpg"
+		} else {
+			img := image.NewRGBA(image.Rect(0, 0, 300, 1000))
+			buf = new(bytes.Buffer)
+			err = jpeg.Encode(buf, img, nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			ext = ".jpg"
+		}
+		page := &manga.Page{
+			Index:     uint16(i),
+			Contents:  buf,
+			Extension: ext,
+		}
+		pages = append(pages, page)
+	}
+
+	// Expected: small pages to .webp, corrupted pages to .jpg (kept as is)
+	expectedExtensions := []string{".webp", ".webp", ".jpg", ".webp", ".jpg"}
+	// Even with split, corrupted pages can't be decoded so stay as is
+
+	return &manga.Chapter{
+		FilePath: path,
+		Pages:    pages,
+	}, expectedExtensions, nil
 }
