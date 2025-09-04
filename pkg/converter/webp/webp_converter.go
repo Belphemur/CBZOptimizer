@@ -173,6 +173,12 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 					log.Info().Err(err).Msg("Page ignored due to image decode error")
 				}
 
+				select {
+				case errChan <- err:
+				case <-ctx.Done():
+					return
+				}
+
 				wgConvertedPages.Add(1)
 				select {
 				case pagesChan <- manga.NewContainer(page, img, format, false):
