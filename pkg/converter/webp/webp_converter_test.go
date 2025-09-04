@@ -236,30 +236,35 @@ func TestConverter_convertPage(t *testing.T) {
 		format          string
 		isToBeConverted bool
 		expectWebP      bool
+		expectError     bool
 	}{
 		{
 			name:            "Convert PNG to WebP",
 			format:          "png",
 			isToBeConverted: true,
 			expectWebP:      true,
+			expectError:     false,
 		},
 		{
 			name:            "Convert GIF to WebP",
 			format:          "gif",
 			isToBeConverted: true,
 			expectWebP:      true,
+			expectError:     false,
 		},
 		{
 			name:            "Already WebP",
 			format:          "webp",
 			isToBeConverted: true,
 			expectWebP:      true,
+			expectError:     false,
 		},
 		{
 			name:            "Skip conversion",
 			format:          "png",
 			isToBeConverted: false,
 			expectWebP:      false,
+			expectError:     false,
 		},
 	}
 
@@ -271,17 +276,45 @@ func TestConverter_convertPage(t *testing.T) {
 			container := manga.NewContainer(page, img, tt.format, tt.isToBeConverted)
 
 			converted, err := converter.convertPage(container, 80)
-			require.NoError(t, err)
-			assert.NotNil(t, converted)
 
-			if tt.expectWebP {
-				assert.Equal(t, ".webp", converted.Page.Extension)
-				validateConvertedImage(t, converted.Page)
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, converted)
 			} else {
-				assert.NotEqual(t, ".webp", converted.Page.Extension)
+				require.NoError(t, err)
+				assert.NotNil(t, converted)
+
+				if tt.expectWebP {
+					assert.Equal(t, ".webp", converted.Page.Extension)
+					validateConvertedImage(t, converted.Page)
+				} else {
+					assert.NotEqual(t, ".webp", converted.Page.Extension)
+				}
 			}
 		})
 	}
+}
+
+func TestConverter_convertPage_WithCorruptedImage(t *testing.T) {
+	converter := New()
+	err := converter.PrepareConverter()
+	require.NoError(t, err)
+
+	// Create a corrupted PNG image by creating a page with invalid data
+	corruptedPage := &manga.Page{
+		Index:     1,
+		Contents:  &bytes.Buffer{}, // Empty buffer - should cause decode error
+		Extension: ".png",
+		Size:      0,
+	}
+
+	container := manga.NewContainer(corruptedPage, nil, "png", true)
+
+	converted, err := converter.convertPage(container, 80)
+
+	// This should return nil container and error because decode will fail with "image: unknown format"
+	assert.Error(t, err)
+	assert.Nil(t, converted)
 }
 
 func TestConverter_checkPageNeedsSplit(t *testing.T) {
