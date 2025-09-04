@@ -154,7 +154,7 @@ func TestConverter_ConvertChapter(t *testing.T) {
 			name:        "Tall image without split",
 			pages:       []*manga.Page{createTestPage(t, 1, 800, webpMaxHeight+100, "png")},
 			split:       false,
-			expectError: false,
+			expectError: true,
 			numExpected: 1,
 		},
 	}

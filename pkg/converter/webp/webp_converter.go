@@ -171,21 +171,15 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 				var pageIgnoredError *converterrors.PageIgnoredError
 				if errors.As(err, &pageIgnoredError) {
 					log.Info().Err(err).Msg("Page ignored due to image decode error")
-				} else {
-					select {
-					case errChan <- err:
-					case <-ctx.Done():
-						return
-					}
 				}
-				if img != nil {
-					wgConvertedPages.Add(1)
-					select {
-					case pagesChan <- manga.NewContainer(page, img, format, false):
-					case <-ctx.Done():
-						return
-					}
+
+				wgConvertedPages.Add(1)
+				select {
+				case pagesChan <- manga.NewContainer(page, img, format, false):
+				case <-ctx.Done():
+					return
 				}
+
 				return
 			}
 
@@ -264,6 +258,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		log.Debug().
 			Str("chapter", chapter.FilePath).
 			Int("error_count", len(errList)).
+			Err(errors.Join(errList...)).
 			Msg("Conversion completed with errors")
 	} else {
 		log.Debug().

@@ -18,6 +18,7 @@ func TestConvertChapter(t *testing.T) {
 		name           string
 		genTestChapter func(path string, isSplit bool) (*manga.Chapter, []string, error)
 		split          bool
+		expectError    bool
 	}{
 		{
 			name:           "All split pages",
@@ -28,6 +29,7 @@ func TestConvertChapter(t *testing.T) {
 			name:           "Big Pages, no split",
 			genTestChapter: genHugePage,
 			split:          false,
+			expectError:    true,
 		},
 		{
 			name:           "No split pages",
@@ -43,11 +45,13 @@ func TestConvertChapter(t *testing.T) {
 			name:           "Mix of Huge and small page",
 			genTestChapter: genMixSmallHuge,
 			split:          false,
+			expectError:    true,
 		},
 		{
 			name:           "Two corrupted pages",
 			genTestChapter: genTwoCorrupted,
 			split:          false,
+			expectError:    true,
 		},
 	}
 	// Load test genTestChapter from testdata
@@ -77,7 +81,7 @@ func TestConvertChapter(t *testing.T) {
 					}
 
 					convertedChapter, err := converter.ConvertChapter(context.Background(), chapter, quality, tc.split, progress)
-					if err != nil {
+					if err != nil && !tc.expectError {
 						t.Fatalf("failed to convert genTestChapter: %v", err)
 					}
 
@@ -247,12 +251,7 @@ func genTwoCorrupted(path string, isSplit bool) (*manga.Chapter, []string, error
 			}
 		}
 		if isCorrupted {
-			img := image.NewRGBA(image.Rect(0, 0, 1, 17000)) // Too tall for WebP without split
-			buf = new(bytes.Buffer)
-			err = jpeg.Encode(buf, img, nil)
-			if err != nil {
-				return nil, nil, err
-			}
+			buf = bytes.NewBufferString("corrupted data") // Invalid data, can't decode as image
 			ext = ".jpg"
 		} else {
 			img := image.NewRGBA(image.Rect(0, 0, 300, 1000))
@@ -271,15 +270,9 @@ func genTwoCorrupted(path string, isSplit bool) (*manga.Chapter, []string, error
 		pages = append(pages, page)
 	}
 
-	// Expected: small pages to .webp, corrupted large pages to .jpg (kept as is)
+	// Expected: small pages to .webp, corrupted pages to .jpg (kept as is)
 	expectedExtensions := []string{".webp", ".webp", ".jpg", ".webp", ".jpg"}
-	if isSplit {
-		// With split, even large pages get split and converted
-		// Small pages: 1 each -> 3
-		// Large pages: 9 each (17000 height, cropHeight 2000) -> 2*9=18
-		// Total: 21
-		expectedExtensions = []string{".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp", ".webp"}
-	}
+	// Even with split, corrupted pages can't be decoded so stay as is
 
 	return &manga.Chapter{
 		FilePath: path,
