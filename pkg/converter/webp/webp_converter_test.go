@@ -144,6 +144,18 @@ func TestConverter_ConvertChapter(t *testing.T) {
 			numExpected: 3,
 		},
 		{
+			name: "Multiple normal images with webp",
+			pages: []*manga.Page{
+				createTestPage(t, 1, 800, 1200, "png"),
+				createTestPage(t, 2, 800, 1200, "jpeg"),
+				createTestPage(t, 3, 800, 1200, "gif"),
+				createTestPage(t, 4, 800, 1200, "webp"),
+			},
+			split:       false,
+			expectSplit: false,
+			numExpected: 4,
+		},
+		{
 			name:        "Tall image with split enabled",
 			pages:       []*manga.Page{createTestPage(t, 1, 800, 5000, "jpeg")},
 			split:       true,
