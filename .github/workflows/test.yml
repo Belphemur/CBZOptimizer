@@ -6,49 +6,41 @@ on:
 
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
-
-      - name: Install dependencies
-        run: go mod tidy
-        
-      - name: Install Junit reporter
-        run: |
-          wget https://github.com/jstemmer/go-junit-report/releases/download/v2.1.0/go-junit-report-v2.1.0-linux-amd64.tar.gz && \
-          tar -xzf go-junit-report-v2.1.0-linux-amd64.tar.gz && \
-          chmod +x go-junit-report && \
-          mv go-junit-report /usr/local/bin/
+          go-version-file: go.mod
+          cache: true
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
 
       - name: Run tests
         run: |
-          set -o pipefail
-          go test -v 2>&1 ./... -coverprofile=coverage.txt | tee test-results.txt
-      - name: Analyse test results
-        if: ${{ !cancelled() }}
-        run: go-junit-report < test-results.txt > junit.xml
+          mkdir -p test-results
+          gotestsum --junitfile test-results/junit.xml --format testname -- -race -coverprofile=coverage.txt -covermode=atomic ./...
+
       - name: Upload test result artifact
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: | 
-            test-results.txt
-            junit.xml
+          path: |
+            test-results/junit.xml
+            test-results/coverage.txt
           retention-days: 7
-      - name: Upload results to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: test-results/junit.xml
+      - name: Upload coverage reports to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
