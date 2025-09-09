@@ -148,7 +148,8 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 				}
 				pagesMutex.Lock()
 				pages = append(pages, convertedPage.Page)
-				progress(fmt.Sprintf("Converted %d/%d pages to %s format", len(pages), totalPages, converter.Format()), uint32(len(pages)), totalPages)
+				currentTotalPages := atomic.LoadUint32(&totalPages)
+				progress(fmt.Sprintf("Converted %d/%d pages to %s format", len(pages), currentTotalPages, converter.Format()), uint32(len(pages)), currentTotalPages)
 				pagesMutex.Unlock()
 			}(page)
 		}
