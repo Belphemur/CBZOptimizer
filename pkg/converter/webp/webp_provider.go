@@ -14,12 +14,11 @@ var prepareMutex sync.Mutex
 func PrepareEncoder() error {
 	prepareMutex.Lock()
 	defer prepareMutex.Unlock()
-	webpbin.SetLibVersion(libwebpVersion)
-	container := webpbin.NewCWebP()
+	container := webpbin.NewCWebP(webpbin.SetLibVersion(libwebpVersion))
 	return container.BinWrapper.Run()
 }
 func Encode(w io.Writer, m image.Image, quality uint) error {
-	return webpbin.NewCWebP().
+	return webpbin.NewCWebP(webpbin.SetLibVersion(libwebpVersion)).
 		Quality(quality).
 		InputImage(m).
 		Output(w).
