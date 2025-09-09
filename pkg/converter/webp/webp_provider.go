@@ -12,12 +12,19 @@ import (
 
 const libwebpVersion = "1.6.0"
 
+var config = webpbin.NewConfig()
+
 var prepareMutex sync.Mutex
+
+func init() {
+	config.SetLibVersion(libwebpVersion)
+}
 
 func PrepareEncoder() error {
 	prepareMutex.Lock()
 	defer prepareMutex.Unlock()
-	container := webpbin.NewCWebP(webpbin.SetLibVersion(libwebpVersion))
+
+	container := webpbin.NewCWebP(config)
 	version, err := container.Version()
 	if err != nil {
 		return err
@@ -31,7 +38,7 @@ func PrepareEncoder() error {
 }
 
 func Encode(w io.Writer, m image.Image, quality uint) error {
-	return webpbin.NewCWebP(webpbin.SetLibVersion(libwebpVersion)).
+	return webpbin.NewCWebP(config).
 		Quality(quality).
 		InputImage(m).
 		Output(w).
