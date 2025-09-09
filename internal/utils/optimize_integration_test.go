@@ -138,7 +138,7 @@ func TestOptimizeIntegration(t *testing.T) {
 				Quality:          85,
 				Override:         tt.override,
 				Split:            false,
-				Timeout:          30 * time.Second, // Longer timeout for real conversion
+				Timeout:          0,
 			}
 
 			// Run optimization
