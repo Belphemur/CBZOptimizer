@@ -19,6 +19,11 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
+      - name: Setup test environment
+        run: |
+          go build -tags testsetup -o test-setup ./cmd/test-setup
+          ./test-setup
+
       - name: Run tests
         run: |
           mkdir -p test-results
