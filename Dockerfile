@@ -24,7 +24,6 @@ COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=bind,source=${TARGETPLATFORM},target=/tmp/target \
     apt-get update && \
     apt-get full-upgrade -y && \
     apt-get install -y --no-install-recommends \
@@ -32,10 +31,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     bash \
     ca-certificates \
     bash-completion && \
-    /tmp/target/encoder-setup && \
     chmod +x ${APP_PATH} && \
     ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash
 
 
 USER ${USER}
+
+# Need to run as the user to have the right config folder created
+RUN --mount=type=bind,source=${TARGETPLATFORM},target=/tmp/target \
+    /tmp/target/encoder-setup
+
 ENTRYPOINT ["/usr/local/bin/CBZOptimizer"]
