@@ -40,7 +40,7 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6 # run goreleaser
         with:
           version: nightly
-          args: release --clean
+          args: release --clean --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # After GoReleaser runs, attest all the files in ./dist/checksums.txt:
