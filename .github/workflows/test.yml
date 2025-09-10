@@ -21,7 +21,7 @@ jobs:
 
       - name: Setup test environment
         run: |
-          go build -tags testsetup -o test-setup ./cmd/test-setup
+          go build -tags encoder_setup -o test-setup ./cmd/test-setup
           ./test-setup
 
       - name: Run tests

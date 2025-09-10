@@ -7,7 +7,9 @@ ENV CONFIG_FOLDER=/config
 ENV PUID=99
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends adduser && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends adduser && \
     addgroup --system users && \
     adduser \
     --system \
@@ -21,7 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends adduser && \
 
 COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
 
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=bind,source=${TARGETPLATFORM},target=/tmp/target \
+    apt-get update && \
     apt-get full-upgrade -y && \
     apt-get install -y --no-install-recommends \
     inotify-tools \
@@ -29,6 +34,7 @@ RUN apt-get update && \
     ca-certificates \
     bash-completion && \
     rm -rf /var/lib/apt/lists/* && \
+    /tmp/target/encoder-setup && \
     chmod +x ${APP_PATH} && \
     ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash
 

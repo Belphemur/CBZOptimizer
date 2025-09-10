@@ -5,6 +5,17 @@ release:
   github:
     owner: belphemur
     name: CBZOptimizer
+  ids:
+    - cbzoptimizer
+archives:
+  - ids:
+      - cbzoptimizer
+    formats: ["tar.zst"]
+    format_overrides:
+      - # Which GOOS to override the format for.
+        goos: windows
+        formats: ["zip"] # Plural form, multiple formats. Since: v2.6
+
 changelog:
   sort: asc
   filters:
@@ -44,6 +55,25 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }}
     env:
       - CGO_ENABLED=0
+  - id: encoder-setup
+    main: cmd/encoder-setup/main.go
+    binary: encoder-setup
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # ensures mod timestamp to be the commit timestamp
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      # trims path
+      - -trimpath
+    tags:
+      - encoder_setup
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }}
+    env:
+      - CGO_ENABLED=0
 # config the checksum filename
 # https://goreleaser.com/customization/checksum
 checksum:
@@ -71,6 +101,7 @@ dockers_v2:
   - id: cbzoptimizer-image
     ids:
       - cbzoptimizer
+      - encoder-setup
     platforms:
       - linux/amd64
       - linux/arm64
@@ -90,7 +121,7 @@ dockers_v2:
 # all files (including the sboms) are included in the checksum, so we don't need to sign each one if we don't want to
 # https://goreleaser.com/customization/sign
 signs:
-  - cmd: cosign
+  - cmd: cosign-windows-amd64.exe
     env:
       - COSIGN_EXPERIMENTAL=1
     certificate: "${artifact}.pem"
@@ -105,7 +136,7 @@ signs:
 # signs our docker image
 # https://goreleaser.com/customization/docker_sign
 docker_signs:
-  - cmd: cosign
+  - cmd: cosign-windows-amd64.exe
     env:
       - COSIGN_EXPERIMENTAL=1
     output: true

@@ -1,5 +1,5 @@
-//go:build testsetup
-// +build testsetup
+//go:build encoder_setup
+// +build encoder_setup
 
 package main
 
