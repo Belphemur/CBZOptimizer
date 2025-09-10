@@ -18,10 +18,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --ingroup users \
     --disabled-password \
     "${USER}" && \
-    apt-get purge -y --auto-remove adduser && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get purge -y --auto-remove adduser
 
 COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
+VOLUME ${CONFIG_FOLDER}
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -33,11 +33,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     bash \
     ca-certificates \
     bash-completion && \
-    rm -rf /var/lib/apt/lists/* && \
     /tmp/target/encoder-setup && \
     chmod +x ${APP_PATH} && \
-    ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash
+    ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash && \
+    echo "source /etc/bash_completion.d/CBZOptimizer.bash" >> ${CONFIG_FOLDER}/.bashrc
 
-VOLUME ${CONFIG_FOLDER}
 USER ${USER}
 ENTRYPOINT ["/usr/local/bin/CBZOptimizer"]
