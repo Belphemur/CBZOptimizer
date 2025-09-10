@@ -139,11 +139,6 @@ LOG_LEVEL=warn cbzconverter optimize comics/
 docker run -e LOG_LEVEL=debug -v /path/to/comics:/comics ghcr.io/belphemur/cbzoptimizer:latest optimize /comics
 ```
 
-## Requirements
-
-- For Docker usage: No additional requirements needed
-- For binary usage: Needs `libwebp` installed on the system for WebP conversion
-
 ## Docker Image
 
 The official Docker image is available at: `ghcr.io/belphemur/cbzoptimizer:latest`
