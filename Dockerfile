@@ -1,5 +1,6 @@
 FROM debian:slim
 LABEL authors="Belphemur"
+ARG TARGETPLATFORM
 ARG APP_PATH=/usr/local/bin/CBZOptimizer
 ENV USER=abc
 ENV CONFIG_FOLDER=/config
@@ -14,7 +15,7 @@ RUN addgroup --system users && \
     --disabled-password \
     "${USER}"
 
-COPY CBZOptimizer ${APP_PATH}
+COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     inotify-tools \

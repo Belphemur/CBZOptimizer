@@ -67,32 +67,18 @@ sboms:
     artifacts: source
 # create a docker image
 # https://goreleaser.com/customization/docker
-dockers:
-  - image_templates:
-      - "ghcr.io/belphemur/cbzoptimizer:latest-amd64"
-      - "ghcr.io/belphemur/cbzoptimizer:{{ .Version }}-amd64"
-    use: buildx
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.name={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-  - image_templates:
-      - "ghcr.io/belphemur/cbzoptimizer:latest-arm64"
-      - "ghcr.io/belphemur/cbzoptimizer:{{ .Version }}-arm64"
-    use: buildx
-    goarch: arm64
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.name={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
+dockers_v2:
+  - images:
+      - "ghcr.io/belphemur/cbzoptimizer"
+    tags:
+      - "{{ .Version }}"
+      - latest
+    labels:
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.name": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Version}}"
+      "org.opencontainers.image.source": "{{.GitURL}}"
 # signs the checksum file
 # all files (including the sboms) are included in the checksum, so we don't need to sign each one if we don't want to
 # https://goreleaser.com/customization/sign
@@ -115,18 +101,8 @@ docker_signs:
   - cmd: cosign
     env:
       - COSIGN_EXPERIMENTAL=1
-    artifacts: images
     output: true
     args:
       - "sign"
       - "${artifact}"
       - "--yes" # needed on cosign 2.0.0+
-docker_manifests:
-  - name_template: "ghcr.io/belphemur/cbzoptimizer:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/belphemur/cbzoptimizer:{{ .Version }}-amd64"
-      - "ghcr.io/belphemur/cbzoptimizer:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/belphemur/cbzoptimizer:latest"
-    image_templates:
-      - "ghcr.io/belphemur/cbzoptimizer:latest-amd64"
-      - "ghcr.io/belphemur/cbzoptimizer:latest-arm64"
