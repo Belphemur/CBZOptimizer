@@ -1,4 +1,4 @@
-FROM debian:slim
+FROM debian:trixie-slim
 LABEL authors="Belphemur"
 ARG TARGETPLATFORM
 ARG APP_PATH=/usr/local/bin/CBZOptimizer
