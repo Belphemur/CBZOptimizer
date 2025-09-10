@@ -121,7 +121,7 @@ dockers_v2:
 # all files (including the sboms) are included in the checksum, so we don't need to sign each one if we don't want to
 # https://goreleaser.com/customization/sign
 signs:
-  - cmd: cosign-windows-amd64.exe
+  - cmd: cosign
     env:
       - COSIGN_EXPERIMENTAL=1
     certificate: "${artifact}.pem"
@@ -136,7 +136,7 @@ signs:
 # signs our docker image
 # https://goreleaser.com/customization/docker_sign
 docker_signs:
-  - cmd: cosign-windows-amd64.exe
+  - cmd: cosign
     env:
       - COSIGN_EXPERIMENTAL=1
     output: true
