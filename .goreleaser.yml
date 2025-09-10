@@ -5,8 +5,6 @@ release:
   github:
     owner: belphemur
     name: CBZOptimizer
-  ids:
-    - cbzoptimizer
 archives:
   - ids:
       - cbzoptimizer
