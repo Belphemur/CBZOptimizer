@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends adduser && \
 COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
 
 RUN apt-get update && \
-    apt-get upgrade -y && \
+    apt-get full-upgrade -y && \
     apt-get install -y --no-install-recommends \
     inotify-tools \
     bash \
