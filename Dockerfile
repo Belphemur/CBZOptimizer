@@ -1,28 +1,28 @@
-FROM alpine:latest
+FROM debian:slim
 LABEL authors="Belphemur"
 ARG APP_PATH=/usr/local/bin/CBZOptimizer
 ENV USER=abc
 ENV CONFIG_FOLDER=/config
 ENV PUID=99
 
-RUN mkdir -p "${CONFIG_FOLDER}" && \
+RUN addgroup --system users && \
     adduser \
-    -S \
-    -H \
-    -h "${CONFIG_FOLDER}" \
-    -G "users" \
-    -u "${PUID}" \
-    "${USER}" && \
-    chown ${PUID}:users "${CONFIG_FOLDER}"
+    --system \
+    --home "${CONFIG_FOLDER}" \
+    --uid "${PUID}" \
+    --ingroup users \
+    --disabled-password \
+    "${USER}"
 
 COPY CBZOptimizer ${APP_PATH}
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     inotify-tools \
     bash \
     bash-completion && \
+    rm -rf /var/lib/apt/lists/* && \
     chmod +x ${APP_PATH} && \
-    ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer
+    ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash
 
 VOLUME ${CONFIG_FOLDER}
 USER ${USER}
