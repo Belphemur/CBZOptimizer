@@ -108,6 +108,13 @@ dockers_v2:
     tags:
       - "{{ .Version }}"
       - latest
+    annotations:
+      "org.opencontainers.image.description": "CBZOptimizer is a Go-based tool designed to optimize CBZ (Comic Book Zip) and CBR (Comic Book RAR) files by converting images to a specified format and quality. This tool is useful for reducing the size of comic book archives while maintaining acceptable image quality."
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.name": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Version}}"
+      "org.opencontainers.image.source": "{{.GitURL}}"
     labels:
       "org.opencontainers.image.created": "{{.Date}}"
       "org.opencontainers.image.name": "{{.ProjectName}}"
