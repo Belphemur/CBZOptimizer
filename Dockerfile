@@ -21,9 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends adduser && \
 
 COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
     inotify-tools \
     bash \
+    ca-certificates \
     bash-completion && \
     rm -rf /var/lib/apt/lists/* && \
     chmod +x ${APP_PATH} && \
