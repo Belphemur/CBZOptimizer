@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Setting up WebP encoder for tests...")
+	fmt.Println("Setting up WebP encoder ...")
 	if err := webp.PrepareEncoder(); err != nil {
 		log.Fatalf("Failed to prepare WebP encoder: %v", err)
 	}
