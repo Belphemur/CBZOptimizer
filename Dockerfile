@@ -6,14 +6,16 @@ ENV USER=abc
 ENV CONFIG_FOLDER=/config
 ENV PUID=99
 
-RUN addgroup --system users && \
+RUN apt-get update && apt-get install -y --no-install-recommends adduser && \
+    addgroup --system users && \
     adduser \
     --system \
     --home "${CONFIG_FOLDER}" \
     --uid "${PUID}" \
     --ingroup users \
     --disabled-password \
-    "${USER}"
+    "${USER}" && \
+    apt-get purge -y --auto-remove adduser
 
 COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
 
