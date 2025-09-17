@@ -5,7 +5,7 @@ go 1.25
 require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/belphemur/go-webpbin/v2 v2.1.0
-	github.com/mholt/archives v0.1.3
+	github.com/mholt/archives v0.1.4
 	github.com/oliamb/cutter v0.2.2
 	github.com/pablodz/inotifywaitgo v0.0.9
 	github.com/rs/zerolog v1.34.0
