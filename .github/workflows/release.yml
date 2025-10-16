@@ -29,7 +29,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - uses: sigstore/cosign-installer@v3.10.0 # installs cosign
-      - uses: anchore/sbom-action/download-syft@v0.20.7 # installs syft
+      - uses: anchore/sbom-action/download-syft@v0.20.8 # installs syft
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
