@@ -14,6 +14,8 @@ jobs:
   copilot-setup:
     name: Setup Development Environment for Copilot
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout repository
