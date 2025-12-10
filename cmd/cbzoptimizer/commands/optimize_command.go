@@ -12,7 +12,6 @@ import (
 	"github.com/belphemur/CBZOptimizer/v2/pkg/converter/constant"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"github.com/thediveo/enumflag/v2"
 )
 
 var converterType constant.ConversionFormat
@@ -25,19 +24,12 @@ func init() {
 		RunE:  ConvertCbzCommand,
 		Args:  cobra.ExactArgs(1),
 	}
-	formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-	_ = formatFlag.RegisterCompletion(command, "format", constant.HelpText)
-
-	command.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
+	
+	// Setup common flags (format, quality, override, split, timeout)
+	setupCommonFlags(command, &converterType, 85, false, false, false)
+	
+	// Setup optimize-specific flags
 	command.Flags().IntP("parallelism", "n", 2, "Number of chapters to convert in parallel")
-	command.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
-	command.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
-	command.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout")
-	command.PersistentFlags().VarP(
-		formatFlag,
-		"format", "f",
-		fmt.Sprintf("Format to convert the images to: %s", constant.ListAll()))
-	command.PersistentFlags().Lookup("format").NoOptDefVal = constant.DefaultConversion.String()
 
 	AddCommand(command)
 }
