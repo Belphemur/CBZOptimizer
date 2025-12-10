@@ -172,3 +172,176 @@ func TestConvertCbzCommand(t *testing.T) {
 	// Log summary
 	t.Logf("Found %d converted files", len(convertedFiles))
 }
+
+// setupTestCommand creates a test command with all required flags for testing.
+// It mocks the converter.Get function and sets up a complete command with all flags.
+//
+// Returns:
+//   - *cobra.Command: A configured command ready for testing
+//   - func(): A cleanup function that must be deferred to restore the original converter.Get
+func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
+	t.Helper()
+	// Mock the converter.Get function
+	originalGet := converter.Get
+	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
+		return &MockConverter{}, nil
+	}
+	cleanup := func() { converter.Get = originalGet }
+	
+	// Set up the command
+	cmd := &cobra.Command{
+		Use: "optimize",
+	}
+	cmd.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
+	cmd.Flags().IntP("parallelism", "n", 1, "Number of chapters to convert in parallel")
+	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
+	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
+	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
+	
+	// Reset converterType to default before test for consistency
+	converterType = constant.DefaultConversion
+	setupFormatFlag(cmd, &converterType, false)
+	
+	return cmd, cleanup
+}
+
+// TestFormatFlagWithSpace tests that the format flag works with space-separated values
+func TestFormatFlagWithSpace(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "test_format_space")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
+
+	// Test with space-separated format flag (--format webp)
+	cmd.ParseFlags([]string{"--format", "webp"})
+	
+	// Execute the command
+	err = ConvertCbzCommand(cmd, []string{tempDir})
+	if err != nil {
+		t.Fatalf("Command execution failed with --format webp: %v", err)
+	}
+
+	// Verify the format was set correctly
+	if converterType != constant.WebP {
+		t.Errorf("Expected format to be WebP, got %v", converterType)
+	}
+}
+
+// TestFormatFlagWithShortForm tests that the short form of format flag works with space-separated values
+func TestFormatFlagWithShortForm(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "test_format_short")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
+
+	// Test with short form and space (-f webp)
+	cmd.ParseFlags([]string{"-f", "webp"})
+	
+	// Execute the command
+	err = ConvertCbzCommand(cmd, []string{tempDir})
+	if err != nil {
+		t.Fatalf("Command execution failed with -f webp: %v", err)
+	}
+
+	// Verify the format was set correctly
+	if converterType != constant.WebP {
+		t.Errorf("Expected format to be WebP, got %v", converterType)
+	}
+}
+
+// TestFormatFlagWithEquals tests that the format flag works with equals syntax
+func TestFormatFlagWithEquals(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "test_format_equals")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
+
+	// Test with equals syntax (--format=webp)
+	cmd.ParseFlags([]string{"--format=webp"})
+	
+	// Execute the command
+	err = ConvertCbzCommand(cmd, []string{tempDir})
+	if err != nil {
+		t.Fatalf("Command execution failed with --format=webp: %v", err)
+	}
+
+	// Verify the format was set correctly
+	if converterType != constant.WebP {
+		t.Errorf("Expected format to be WebP, got %v", converterType)
+	}
+}
+
+// TestFormatFlagDefaultValue tests that the default format is used when flag is not provided
+func TestFormatFlagDefaultValue(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "test_format_default")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
+
+	// Don't set format flag - should use default
+	cmd.ParseFlags([]string{})
+	
+	// Execute the command
+	err = ConvertCbzCommand(cmd, []string{tempDir})
+	if err != nil {
+		t.Fatalf("Command execution failed with default format: %v", err)
+	}
+
+	// Verify the default format is used
+	if converterType != constant.DefaultConversion {
+		t.Errorf("Expected format to be default (%v), got %v", constant.DefaultConversion, converterType)
+	}
+}
+
+// TestFormatFlagCaseInsensitive tests that the format flag is case-insensitive
+func TestFormatFlagCaseInsensitive(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "test_format_case")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	testCases := []string{"webp", "WEBP", "WebP", "WeBp"}
+
+	for _, formatValue := range testCases {
+		t.Run(formatValue, func(t *testing.T) {
+			cmd, cleanup := setupTestCommand(t)
+			defer cleanup()
+
+			// Test with different case variations
+			cmd.ParseFlags([]string{"--format", formatValue})
+			
+			// Execute the command
+			err = ConvertCbzCommand(cmd, []string{tempDir})
+			if err != nil {
+				t.Fatalf("Command execution failed with format '%s': %v", formatValue, err)
+			}
+
+			// Verify the format was set correctly
+			if converterType != constant.WebP {
+				t.Errorf("Expected format to be WebP for input '%s', got %v", formatValue, converterType)
+			}
+		})
+	}
+}

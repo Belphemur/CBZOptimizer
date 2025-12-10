@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/thediveo/enumflag/v2"
 )
 
 func init() {
@@ -27,27 +26,9 @@ func init() {
 		RunE:  WatchCommand,
 		Args:  cobra.ExactArgs(1),
 	}
-	formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-	_ = formatFlag.RegisterCompletion(command, "format", constant.HelpText)
-
-	command.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
-	_ = viper.BindPFlag("quality", command.Flags().Lookup("quality"))
-
-	command.Flags().BoolP("override", "o", true, "Override the original CBZ/CBR files")
-	_ = viper.BindPFlag("override", command.Flags().Lookup("override"))
-
-	command.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
-	_ = viper.BindPFlag("split", command.Flags().Lookup("split"))
-
-	command.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout")
-	_ = viper.BindPFlag("timeout", command.Flags().Lookup("timeout"))
-
-	command.PersistentFlags().VarP(
-		formatFlag,
-		"format", "f",
-		fmt.Sprintf("Format to convert the images to: %s", constant.ListAll()))
-	command.PersistentFlags().Lookup("format").NoOptDefVal = constant.DefaultConversion.String()
-	_ = viper.BindPFlag("format", command.PersistentFlags().Lookup("format"))
+	
+	// Setup common flags (format, quality, override, split, timeout) with viper binding
+	setupCommonFlags(command, &converterType, 85, true, false, true)
 
 	AddCommand(command)
 }
