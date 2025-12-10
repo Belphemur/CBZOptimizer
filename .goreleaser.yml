@@ -1,10 +1,20 @@
 # .goreleaser.yml
 version: 2
 project_name: CBZOptimizer
+
+# Configures the release process on GitHub
+# https://goreleaser.com/customization/release/
 release:
   github:
     owner: belphemur
     name: CBZOptimizer
+  include_meta: true
+  # draft: false # Default is false
+  # prerelease: auto # Default is auto
+  # mode: replace # Default is append
+
+# Configures the binary archive generation
+# https://goreleaser.com/customization/archive/
 archives:
   - ids:
       - cbzoptimizer
@@ -14,7 +24,11 @@ archives:
         goos: windows
         formats: ["zip"] # Plural form, multiple formats. Since: v2.6
 
+# Configures the changelog generation
+# https://goreleaser.com/customization/changelog/
 changelog:
+  use: github
+  format: "{{.SHA}}: {{.Message}} (@{{.AuthorUsername}})"
   sort: asc
   filters:
     exclude:
@@ -31,6 +45,16 @@ changelog:
     - title: "Performance"
       regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
       order: 2
+
+# Hooks to run before the build process starts
+# https://goreleaser.com/customization/hooks/
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+# Configures the Go build process
+# https://goreleaser.com/customization/build/
 builds:
   - id: cbzoptimizer
     main: cmd/cbzoptimizer/main.go
@@ -72,29 +96,37 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }}
     env:
       - CGO_ENABLED=0
-# config the checksum filename
-# https://goreleaser.com/customization/checksum
+
+# Configures the checksum file generation
+# https://goreleaser.com/customization/checksum/
 checksum:
   name_template: "checksums.txt"
-# Change the digests filename:
+
+# Change the digests filename for attestation
+# https://goreleaser.com/customization/docker_digest/
 docker_digest:
   name_template: "digests.txt"
-# create a source tarball
+
+# Creates a source code archive (tar.gz and zip)
 # https://goreleaser.com/customization/source/
 source:
   enabled: true
-# proxies from the go mod proxy before building
-# https://goreleaser.com/customization/gomod
+
+# Configures Go Modules settings
+# https://goreleaser.com/customization/gomod/
 gomod:
   proxy: true
-# creates SBOMs of all archives and the source tarball using syft
-# https://goreleaser.com/customization/sbom
+
+# Creates SBOMs (Software Bill of Materials)
+# https://goreleaser.com/customization/sbom/
 sboms:
-  - artifacts: archive
-  - id: source # Two different sbom configurations need two different IDs
-    artifacts: source
-# create a docker image
-# https://goreleaser.com/customization/docker
+  - id: archive # Default ID for archive SBOMs
+    artifacts: archive # Generate SBOMs for binary archives using Syft
+  - id: source # Unique ID for source SBOM
+    artifacts: source # Generate SBOM for the source code archive
+
+# Creates Docker images and pushes them to registries using Docker v2 API
+# https://goreleaser.com/customization/docker/
 dockers_v2:
   - id: cbzoptimizer-image
     ids:
@@ -122,30 +154,3 @@ dockers_v2:
       "org.opencontainers.image.version": "{{.Version}}"
       "org.opencontainers.image.source": "{{.GitURL}}"
       "org.opencontainers.image.description": "CBZOptimizer is a Go-based tool designed to optimize CBZ (Comic Book Zip) and CBR (Comic Book RAR) files by converting images to a specified format and quality. This tool is useful for reducing the size of comic book archives while maintaining acceptable image quality."
-# signs the checksum file
-# all files (including the sboms) are included in the checksum, so we don't need to sign each one if we don't want to
-# https://goreleaser.com/customization/sign
-signs:
-  - cmd: cosign
-    env:
-      - COSIGN_EXPERIMENTAL=1
-    certificate: "${artifact}.pem"
-    args:
-      - sign-blob
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
-      - "${artifact}"
-      - "--yes" # needed on cosign 2.0.0+
-    artifacts: checksum
-    output: true
-# signs our docker image
-# https://goreleaser.com/customization/docker_sign
-docker_signs:
-  - cmd: cosign
-    env:
-      - COSIGN_EXPERIMENTAL=1
-    output: true
-    args:
-      - "sign"
-      - "${artifact}"
-      - "--yes" # needed on cosign 2.0.0+
