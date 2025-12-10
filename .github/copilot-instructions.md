@@ -72,10 +72,10 @@ This step is **required** before running tests or building the main application.
 
 ```bash
 # Build the main application
-go build -o cbzoptimizer ./cmd/cbzoptimizer
+go build -o cbzconverter ./cmd/cbzoptimizer
 
 # Build with version information
-go build -ldflags "-s -w -X main.version=1.0.0 -X main.commit=abc123 -X main.date=2024-01-01" ./cmd/cbzoptimizer
+go build -ldflags "-s -w -X main.version=1.0.0 -X main.commit=abc123 -X main.date=2024-01-01" -o cbzconverter ./cmd/cbzoptimizer
 ```
 
 ### Testing
@@ -299,7 +299,7 @@ Releases are automated via goreleaser:
 - The `--override` flag deletes the original file after successful conversion
 - Page splitting is useful for double-page spreads or very tall images
 - Watch mode uses inotify on Linux for efficient file monitoring
-- Bash completion is available via `cbzoptimizer completion bash`
+- Bash completion is available via `cbzconverter completion bash`
 
 ## Getting Help
 

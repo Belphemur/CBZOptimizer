@@ -4,11 +4,6 @@ permissions:
 
 on:
   workflow_dispatch: # Allow manual triggering
-  push:
-    branches:
-      - main
-      - develop
-  pull_request:
 
 jobs:
   copilot-setup:
@@ -64,23 +59,6 @@ jobs:
           which gotestsum && gotestsum --version
           which golangci-lint && golangci-lint --version
           
-      - name: Run basic tests
-        run: |
-          echo "Running basic tests to verify setup..."
-          mkdir -p test-results
-          gotestsum --junitfile test-results/junit.xml --format testname -- -race -coverprofile=coverage.txt -covermode=atomic ./...
-          echo "Tests completed successfully"
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: copilot-setup-test-results
-          path: |
-            test-results/junit.xml
-            coverage.txt
-          retention-days: 7
-
       - name: Setup summary
         if: always()
         run: |
@@ -100,4 +78,4 @@ jobs:
           echo "1. Review the copilot instructions at \`.github/copilot-instructions.md\`" >> $GITHUB_STEP_SUMMARY
           echo "2. Use \`go test ./...\` to run tests" >> $GITHUB_STEP_SUMMARY
           echo "3. Use \`golangci-lint run\` for linting" >> $GITHUB_STEP_SUMMARY
-          echo "4. Build the application with \`go build ./cmd/cbzoptimizer\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Build the application with \`go build -o cbzconverter ./cmd/cbzoptimizer\`" >> $GITHUB_STEP_SUMMARY
