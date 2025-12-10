@@ -51,15 +51,6 @@ jobs:
         run: |
           ./encoder-setup
 
-      - name: Build application
-        run: |
-          go build -o cbzconverter ./cmd/cbzoptimizer
-
-      - name: Verify build
-        run: |
-          ls -lh cbzconverter
-          file cbzconverter
-
       - name: Install gotestsum
         run: |
           go install gotest.tools/gotestsum@latest
@@ -75,5 +66,4 @@ jobs:
           echo "✅ golangci-lint installed"
           echo "✅ Dependencies downloaded and verified"
           echo "✅ WebP encoder configured (libwebp 1.6.0)"
-          echo "✅ Application built successfully"
           echo "✅ gotestsum (test runner) installed"
