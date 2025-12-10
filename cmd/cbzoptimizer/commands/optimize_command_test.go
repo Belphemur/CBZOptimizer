@@ -181,7 +181,6 @@ func TestConvertCbzCommand(t *testing.T) {
 //   - func(): A cleanup function that must be deferred to restore the original converter.Get
 func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
 	t.Helper()
-	
 	// Mock the converter.Get function
 	originalGet := converter.Get
 	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
