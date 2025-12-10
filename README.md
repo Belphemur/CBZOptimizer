@@ -42,6 +42,22 @@ Optimize all CBZ/CBR files in a folder recursively:
 cbzconverter optimize [folder] --quality 85 --parallelism 2 --override --format webp --split
 ```
 
+The format flag can be specified in multiple ways:
+
+```sh
+# Using space-separated syntax
+cbzconverter optimize [folder] --format webp
+
+# Using short form with space
+cbzconverter optimize [folder] -f webp
+
+# Using equals syntax
+cbzconverter optimize [folder] --format=webp
+
+# Format is case-insensitive
+cbzconverter optimize [folder] --format WEBP
+```
+
 With timeout to avoid hanging on problematic chapters:
 
 ```sh
@@ -74,7 +90,9 @@ docker run -v /path/to/comics:/comics ghcr.io/belphemur/cbzoptimizer:latest watc
 - `--parallelism`, `-n`: Number of chapters to convert in parallel. Default is 2.
 - `--override`, `-o`: Override the original files. For CBZ files, overwrites the original. For CBR files, deletes the original CBR and creates a new CBZ. Default is false.
 - `--split`, `-s`: Split long pages into smaller chunks. Default is false.
-- `--format`, `-f`: Format to convert the images to (e.g., webp). Default is webp.
+- `--format`, `-f`: Format to convert the images to (currently supports: webp). Default is webp.
+  - Can be specified as: `--format webp`, `-f webp`, or `--format=webp`
+  - Case-insensitive: `webp`, `WEBP`, and `WebP` are all valid
 - `--timeout`, `-t`: Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout. Default is 0.
 - `--log`, `-l`: Set log level; can be 'panic', 'fatal', 'error', 'warn', 'info', 'debug', or 'trace'. Default is info.
 

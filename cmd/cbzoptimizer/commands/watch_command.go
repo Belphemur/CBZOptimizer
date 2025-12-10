@@ -42,12 +42,11 @@ func init() {
 	command.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout")
 	_ = viper.BindPFlag("timeout", command.Flags().Lookup("timeout"))
 
-	command.PersistentFlags().VarP(
+	command.Flags().VarP(
 		formatFlag,
 		"format", "f",
 		fmt.Sprintf("Format to convert the images to: %s", constant.ListAll()))
-	command.PersistentFlags().Lookup("format").NoOptDefVal = constant.DefaultConversion.String()
-	_ = viper.BindPFlag("format", command.PersistentFlags().Lookup("format"))
+	_ = viper.BindPFlag("format", command.Flags().Lookup("format"))
 
 	AddCommand(command)
 }
