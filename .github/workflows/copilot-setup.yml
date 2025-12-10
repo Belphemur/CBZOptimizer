@@ -1,4 +1,6 @@
 name: GitHub Copilot Setup
+permissions:
+  contents: read
 
 on:
   workflow_dispatch: # Allow manual triggering
