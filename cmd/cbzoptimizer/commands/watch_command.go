@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/thediveo/enumflag/v2"
 )
 
 func init() {
@@ -27,8 +26,8 @@ func init() {
 		RunE:  WatchCommand,
 		Args:  cobra.ExactArgs(1),
 	}
-	formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-	_ = formatFlag.RegisterCompletion(command, "format", constant.HelpText)
+	
+	setupFormatFlag(command, &converterType, true)
 
 	command.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
 	_ = viper.BindPFlag("quality", command.Flags().Lookup("quality"))
@@ -41,12 +40,6 @@ func init() {
 
 	command.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout")
 	_ = viper.BindPFlag("timeout", command.Flags().Lookup("timeout"))
-
-	command.Flags().VarP(
-		formatFlag,
-		"format", "f",
-		fmt.Sprintf("Format to convert the images to: %s", constant.ListAll()))
-	_ = viper.BindPFlag("format", command.Flags().Lookup("format"))
 
 	AddCommand(command)
 }
