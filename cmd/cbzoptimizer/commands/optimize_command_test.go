@@ -173,7 +173,12 @@ func TestConvertCbzCommand(t *testing.T) {
 	t.Logf("Found %d converted files", len(convertedFiles))
 }
 
-// setupTestCommand creates a test command with all required flags
+// setupTestCommand creates a test command with all required flags for testing.
+// It mocks the converter.Get function and sets up a complete command with all flags.
+//
+// Returns:
+//   - *cobra.Command: A configured command ready for testing
+//   - func(): A cleanup function that must be deferred to restore the original converter.Get
 func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
 	t.Helper()
 	
@@ -194,8 +199,8 @@ func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
 	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
 	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
 	
-	// Reset converterType to default before test
-	converterType = constant.WebP
+	// Reset converterType to default before test for consistency
+	converterType = constant.DefaultConversion
 	setupFormatFlag(cmd, &converterType, false)
 	
 	return cmd, cleanup
