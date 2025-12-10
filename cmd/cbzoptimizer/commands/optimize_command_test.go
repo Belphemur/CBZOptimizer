@@ -15,7 +15,6 @@ import (
 	"github.com/belphemur/CBZOptimizer/v2/pkg/converter"
 	"github.com/belphemur/CBZOptimizer/v2/pkg/converter/constant"
 	"github.com/spf13/cobra"
-	"github.com/thediveo/enumflag/v2"
 )
 
 // MockConverter is a mock implementation of the Converter interface
@@ -174,22 +173,17 @@ func TestConvertCbzCommand(t *testing.T) {
 	t.Logf("Found %d converted files", len(convertedFiles))
 }
 
-// TestFormatFlagWithSpace tests that the format flag works with space-separated values
-func TestFormatFlagWithSpace(t *testing.T) {
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "test_format_space")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+// setupTestCommand creates a test command with all required flags
+func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
+	t.Helper()
+	
 	// Mock the converter.Get function
 	originalGet := converter.Get
 	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
 		return &MockConverter{}, nil
 	}
-	defer func() { converter.Get = originalGet }()
-
+	cleanup := func() { converter.Get = originalGet }
+	
 	// Set up the command
 	cmd := &cobra.Command{
 		Use: "optimize",
@@ -202,8 +196,22 @@ func TestFormatFlagWithSpace(t *testing.T) {
 	
 	// Reset converterType to default before test
 	converterType = constant.WebP
-	formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-	cmd.Flags().VarP(formatFlag, "format", "f", "Format to convert the images to")
+	setupFormatFlag(cmd, &converterType, false)
+	
+	return cmd, cleanup
+}
+
+// TestFormatFlagWithSpace tests that the format flag works with space-separated values
+func TestFormatFlagWithSpace(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "test_format_space")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
 
 	// Test with space-separated format flag (--format webp)
 	cmd.ParseFlags([]string{"--format", "webp"})
@@ -229,27 +237,8 @@ func TestFormatFlagWithShortForm(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Mock the converter.Get function
-	originalGet := converter.Get
-	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
-		return &MockConverter{}, nil
-	}
-	defer func() { converter.Get = originalGet }()
-
-	// Set up the command
-	cmd := &cobra.Command{
-		Use: "optimize",
-	}
-	cmd.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
-	cmd.Flags().IntP("parallelism", "n", 1, "Number of chapters to convert in parallel")
-	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
-	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
-	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
-	
-	// Reset converterType to default before test
-	converterType = constant.WebP
-	formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-	cmd.Flags().VarP(formatFlag, "format", "f", "Format to convert the images to")
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
 
 	// Test with short form and space (-f webp)
 	cmd.ParseFlags([]string{"-f", "webp"})
@@ -275,27 +264,8 @@ func TestFormatFlagWithEquals(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Mock the converter.Get function
-	originalGet := converter.Get
-	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
-		return &MockConverter{}, nil
-	}
-	defer func() { converter.Get = originalGet }()
-
-	// Set up the command
-	cmd := &cobra.Command{
-		Use: "optimize",
-	}
-	cmd.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
-	cmd.Flags().IntP("parallelism", "n", 1, "Number of chapters to convert in parallel")
-	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
-	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
-	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
-	
-	// Reset converterType to default before test
-	converterType = constant.WebP
-	formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-	cmd.Flags().VarP(formatFlag, "format", "f", "Format to convert the images to")
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
 
 	// Test with equals syntax (--format=webp)
 	cmd.ParseFlags([]string{"--format=webp"})
@@ -321,27 +291,8 @@ func TestFormatFlagDefaultValue(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Mock the converter.Get function
-	originalGet := converter.Get
-	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
-		return &MockConverter{}, nil
-	}
-	defer func() { converter.Get = originalGet }()
-
-	// Set up the command
-	cmd := &cobra.Command{
-		Use: "optimize",
-	}
-	cmd.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
-	cmd.Flags().IntP("parallelism", "n", 1, "Number of chapters to convert in parallel")
-	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
-	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
-	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
-	
-	// Reset converterType to default before test
-	converterType = constant.DefaultConversion
-	formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-	cmd.Flags().VarP(formatFlag, "format", "f", "Format to convert the images to")
+	cmd, cleanup := setupTestCommand(t)
+	defer cleanup()
 
 	// Don't set format flag - should use default
 	cmd.ParseFlags([]string{})
@@ -367,31 +318,12 @@ func TestFormatFlagCaseInsensitive(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Mock the converter.Get function
-	originalGet := converter.Get
-	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
-		return &MockConverter{}, nil
-	}
-	defer func() { converter.Get = originalGet }()
-
 	testCases := []string{"webp", "WEBP", "WebP", "WeBp"}
 
 	for _, formatValue := range testCases {
 		t.Run(formatValue, func(t *testing.T) {
-			// Set up the command
-			cmd := &cobra.Command{
-				Use: "optimize",
-			}
-			cmd.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
-			cmd.Flags().IntP("parallelism", "n", 1, "Number of chapters to convert in parallel")
-			cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
-			cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
-			cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
-			
-			// Reset converterType to default before test
-			converterType = constant.WebP
-			formatFlag := enumflag.New(&converterType, "format", constant.CommandValue, enumflag.EnumCaseInsensitive)
-			cmd.Flags().VarP(formatFlag, "format", "f", "Format to convert the images to")
+			cmd, cleanup := setupTestCommand(t)
+			defer cleanup()
 
 			// Test with different case variations
 			cmd.ParseFlags([]string{"--format", formatValue})
