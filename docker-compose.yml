@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  cbzoptimizer:
+    image: ghcr.io/belphemur/cbzoptimizer:latest
+    container_name: cbzoptimizer
+    environment:
+      # Set log level (panic, fatal, error, warn, info, debug, trace)
+      - LOG_LEVEL=info
+      # User and Group ID for file permissions
+      - PUID=99
+      - PGID=100
+    volumes:
+      # Mount your comics directory
+      - /path/to/your/comics:/comics
+      # Optional: Mount a config directory for persistent settings
+      - ./config:/config
+    # Example: Optimize all comics in the /comics directory
+    command: optimize /comics --quality 85 --parallelism 2 --override --format webp --split
+    restart: unless-stopped
+
+  # Example: Watch mode service
+  cbzoptimizer-watch:
+    image: ghcr.io/belphemur/cbzoptimizer:latest
+    container_name: cbzoptimizer-watch
+    environment:
+      - LOG_LEVEL=info
+      - PUID=99
+      - PGID=100
+    volumes:
+      - /path/to/watch/directory:/watch
+      - ./config:/config
+    # Watch for new files and automatically optimize them
+    command: watch /watch --quality 85 --override --format webp --split
+    restart: unless-stopped

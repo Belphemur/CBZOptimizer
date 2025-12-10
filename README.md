@@ -161,6 +161,77 @@ docker run -e LOG_LEVEL=debug -v /path/to/comics:/comics ghcr.io/belphemur/cbzop
 
 The official Docker image is available at: `ghcr.io/belphemur/cbzoptimizer:latest`
 
+### Docker Compose
+
+You can use Docker Compose to run CBZOptimizer with persistent configuration. Create a `docker-compose.yml` file:
+
+```yaml
+version: '3.8'
+
+services:
+  cbzoptimizer:
+    image: ghcr.io/belphemur/cbzoptimizer:latest
+    container_name: cbzoptimizer
+    environment:
+      # Set log level (panic, fatal, error, warn, info, debug, trace)
+      - LOG_LEVEL=info
+      # User and Group ID for file permissions
+      - PUID=99
+      - PGID=100
+    volumes:
+      # Mount your comics directory
+      - /path/to/your/comics:/comics
+      # Optional: Mount a config directory for persistent settings
+      - ./config:/config
+    # Example: Optimize all comics in the /comics directory
+    command: optimize /comics --quality 85 --parallelism 2 --override --format webp --split
+    restart: unless-stopped
+```
+
+For watch mode, you can create a separate service:
+
+```yaml
+  cbzoptimizer-watch:
+    image: ghcr.io/belphemur/cbzoptimizer:latest
+    container_name: cbzoptimizer-watch
+    environment:
+      - LOG_LEVEL=info
+      - PUID=99
+      - PGID=100
+    volumes:
+      - /path/to/watch/directory:/watch
+      - ./config:/config
+    # Watch for new files and automatically optimize them
+    command: watch /watch --quality 85 --override --format webp --split
+    restart: unless-stopped
+```
+
+**Important Notes:**
+- Replace `/path/to/your/comics` and `/path/to/watch/directory` with your actual directory paths
+- The `PUID` and `PGID` environment variables control file permissions (default: 99/100)
+- The `LOG_LEVEL` environment variable sets the logging verbosity
+- For one-time optimization, remove the `restart: unless-stopped` line
+- Watch mode only works on Linux systems
+
+#### Running with Docker Compose
+
+```sh
+# Start the service (one-time optimization)
+docker-compose up cbzoptimizer
+
+# Start in detached mode
+docker-compose up -d cbzoptimizer
+
+# Start watch mode service
+docker-compose up -d cbzoptimizer-watch
+
+# View logs
+docker-compose logs -f cbzoptimizer
+
+# Stop services
+docker-compose down
+```
+
 ## Troubleshooting
 
 If you encounter issues:
