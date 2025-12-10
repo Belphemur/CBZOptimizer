@@ -1,0 +1,81 @@
+name: GitHub Copilot Setup
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  copilot-setup:
+    name: Setup Development Environment for Copilot
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build encoder-setup utility
+        run: |
+          echo "Building encoder-setup utility with encoder_setup build tag..."
+          go build -tags encoder_setup -o encoder-setup ./cmd/encoder-setup
+          ls -lh encoder-setup
+        
+      - name: Run encoder-setup
+        run: |
+          echo "Running encoder-setup to configure WebP encoder..."
+          ./encoder-setup
+          echo "Encoder setup completed successfully"
+
+      - name: Verify Go environment
+        run: |
+          echo "=== Go Environment ==="
+          go version
+          go env
+          echo ""
+          echo "=== Go Module Info ==="
+          go list -m all | head -20
+          
+      - name: Install development tools
+        run: |
+          echo "Installing gotestsum for testing..."
+          go install gotest.tools/gotestsum@latest
+          
+          echo "Installing golangci-lint for linting..."
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+          
+          echo "Development tools installed successfully"
+
+      - name: Verify installation
+        run: |
+          echo "=== Verifying tools ==="
+          which gotestsum && gotestsum --version
+          which golangci-lint && golangci-lint --version
+          
+      - name: Setup summary
+        if: always()
+        run: |
+          echo "## GitHub Copilot Development Environment Setup Complete! 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Go Version:** $(go version | cut -d' ' -f3)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform:** ubuntu-latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **WebP Encoder:** Configured (libwebp 1.6.0)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Installed Tools" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ encoder-setup (WebP configuration)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ gotestsum (test runner)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ golangci-lint (code quality)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Review the copilot instructions at \`.github/copilot-instructions.md\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Use \`go test ./...\` to run tests" >> $GITHUB_STEP_SUMMARY
+          echo "3. Use \`golangci-lint run\` for linting" >> $GITHUB_STEP_SUMMARY
+          echo "4. Build the application with \`go build -o cbzconverter ./cmd/cbzoptimizer\`" >> $GITHUB_STEP_SUMMARY
