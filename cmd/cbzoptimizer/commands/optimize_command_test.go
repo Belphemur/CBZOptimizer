@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -343,5 +344,203 @@ func TestFormatFlagCaseInsensitive(t *testing.T) {
 				t.Errorf("Expected format to be WebP for input '%s', got %v", formatValue, converterType)
 			}
 		})
+	}
+}
+
+// TestConvertCbzCommand_ManyFiles_NoDeadlock tests that processing many files in parallel
+// does not cause a deadlock. This reproduces the scenario where processing
+// recursive folders of CBZ files with parallelism > 1 could cause a "all goroutines are asleep - deadlock!" error.
+func TestConvertCbzCommand_ManyFiles_NoDeadlock(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "test_cbz_many_files")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer errs.CaptureGeneric(&err, os.RemoveAll, tempDir, "failed to remove temporary directory")
+
+	// Locate the testdata directory
+	testdataDir := filepath.Join("../../../testdata")
+	if _, err := os.Stat(testdataDir); os.IsNotExist(err) {
+		t.Fatalf("testdata directory not found")
+	}
+
+	// Create subdirectories to simulate the recursive folder structure from the bug report
+	subdirs := []string{"author1/book1", "author2/book2", "author3/book3", "author4/book4"}
+	for _, subdir := range subdirs {
+		err := os.MkdirAll(filepath.Join(tempDir, subdir), 0755)
+		if err != nil {
+			t.Fatalf("Failed to create subdirectory: %v", err)
+		}
+	}
+
+	// Find a sample CBZ file to copy
+	var sampleCBZ string
+	err = filepath.Walk(testdataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".cbz") && !strings.Contains(info.Name(), "converted") {
+			sampleCBZ = path
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil || sampleCBZ == "" {
+		t.Fatalf("Failed to find sample CBZ file: %v", err)
+	}
+
+	// Copy the sample file to multiple locations (simulating many files to process)
+	numFilesPerDir := 5
+	totalFiles := 0
+	for _, subdir := range subdirs {
+		for i := 0; i < numFilesPerDir; i++ {
+			destPath := filepath.Join(tempDir, subdir, fmt.Sprintf("Chapter_%d.cbz", i+1))
+			data, err := os.ReadFile(sampleCBZ)
+			if err != nil {
+				t.Fatalf("Failed to read sample file: %v", err)
+			}
+			err = os.WriteFile(destPath, data, 0644)
+			if err != nil {
+				t.Fatalf("Failed to write test file: %v", err)
+			}
+			totalFiles++
+		}
+	}
+	t.Logf("Created %d test files across %d directories", totalFiles, len(subdirs))
+
+	// Mock the converter.Get function
+	originalGet := converter.Get
+	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
+		return &MockConverter{}, nil
+	}
+	defer func() { converter.Get = originalGet }()
+
+	// Set up the command with parallelism = 2 (same as the bug report)
+	cmd := &cobra.Command{
+		Use: "optimize",
+	}
+	cmd.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
+	cmd.Flags().IntP("parallelism", "n", 2, "Number of chapters to convert in parallel")
+	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
+	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
+	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
+
+	converterType = constant.DefaultConversion
+	setupFormatFlag(cmd, &converterType, false)
+
+	// Run the command with a timeout to detect deadlocks
+	done := make(chan error, 1)
+	go func() {
+		done <- ConvertCbzCommand(cmd, []string{tempDir})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Command execution failed: %v", err)
+		}
+		t.Logf("Command completed successfully without deadlock")
+	case <-time.After(60 * time.Second):
+		t.Fatal("Deadlock detected: Command did not complete within 60 seconds")
+	}
+
+	// Verify that converted files were created
+	var convertedCount int
+	err = filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), "_converted.cbz") {
+			convertedCount++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Error counting converted files: %v", err)
+	}
+
+	if convertedCount != totalFiles {
+		t.Errorf("Expected %d converted files, found %d", totalFiles, convertedCount)
+	}
+	t.Logf("Found %d converted files as expected", convertedCount)
+}
+
+// TestConvertCbzCommand_HighParallelism_NoDeadlock tests processing with high parallelism setting.
+func TestConvertCbzCommand_HighParallelism_NoDeadlock(t *testing.T) {
+	// Create a temporary directory
+	tempDir, err := os.MkdirTemp("", "test_cbz_high_parallel")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer errs.CaptureGeneric(&err, os.RemoveAll, tempDir, "failed to remove temporary directory")
+
+	// Locate the testdata directory
+	testdataDir := filepath.Join("../../../testdata")
+	if _, err := os.Stat(testdataDir); os.IsNotExist(err) {
+		t.Fatalf("testdata directory not found")
+	}
+
+	// Find and copy sample CBZ files
+	var sampleCBZ string
+	err = filepath.Walk(testdataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".cbz") && !strings.Contains(info.Name(), "converted") {
+			sampleCBZ = path
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil || sampleCBZ == "" {
+		t.Fatalf("Failed to find sample CBZ file: %v", err)
+	}
+
+	// Create many test files
+	numFiles := 15
+	for i := 0; i < numFiles; i++ {
+		destPath := filepath.Join(tempDir, fmt.Sprintf("test_file_%d.cbz", i+1))
+		data, err := os.ReadFile(sampleCBZ)
+		if err != nil {
+			t.Fatalf("Failed to read sample file: %v", err)
+		}
+		err = os.WriteFile(destPath, data, 0644)
+		if err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+	}
+
+	// Mock the converter
+	originalGet := converter.Get
+	converter.Get = func(format constant.ConversionFormat) (converter.Converter, error) {
+		return &MockConverter{}, nil
+	}
+	defer func() { converter.Get = originalGet }()
+
+	// Test with high parallelism (8)
+	cmd := &cobra.Command{
+		Use: "optimize",
+	}
+	cmd.Flags().Uint8P("quality", "q", 85, "Quality for conversion (0-100)")
+	cmd.Flags().IntP("parallelism", "n", 8, "Number of chapters to convert in parallel")
+	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
+	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
+	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
+
+	converterType = constant.DefaultConversion
+	setupFormatFlag(cmd, &converterType, false)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- ConvertCbzCommand(cmd, []string{tempDir})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Command execution failed: %v", err)
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("Deadlock detected with high parallelism")
 	}
 }
