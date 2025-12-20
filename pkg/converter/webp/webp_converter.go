@@ -184,6 +184,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 				select {
 				case pagesChan <- manga.NewContainer(page, img, format, false):
 				case <-ctx.Done():
+					wgConvertedPages.Done()
 					return
 				}
 
@@ -195,6 +196,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 				select {
 				case pagesChan <- manga.NewContainer(page, img, format, true):
 				case <-ctx.Done():
+					wgConvertedPages.Done()
 					return
 				}
 				return
@@ -227,6 +229,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 				select {
 				case pagesChan <- manga.NewContainer(newPage, img, "N/A", true):
 				case <-ctx.Done():
+					wgConvertedPages.Done()
 					return
 				}
 			}

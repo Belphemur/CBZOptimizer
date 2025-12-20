@@ -3,6 +3,7 @@ package webp
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
@@ -10,6 +11,7 @@ import (
 	"image/png"
 	"sync"
 	"testing"
+	"time"
 
 	_ "golang.org/x/image/webp"
 
@@ -421,4 +423,173 @@ func TestConverter_ConvertChapter_Timeout(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, convertedChapter)
 	assert.Equal(t, context.DeadlineExceeded, err)
+}
+
+// TestConverter_ConvertChapter_ManyPages_NoDeadlock tests that converting chapters with many pages
+// does not cause a deadlock. This test reproduces the scenario from issue #XX where processing
+// many files with context cancellation could cause "all goroutines are asleep - deadlock!" error.
+// The fix ensures that wgConvertedPages.Done() is called when context is cancelled after Add(1).
+func TestConverter_ConvertChapter_ManyPages_NoDeadlock(t *testing.T) {
+	converter := New()
+	err := converter.PrepareConverter()
+	require.NoError(t, err)
+
+	// Create a chapter with many pages to increase the chance of hitting the race condition
+	numPages := 50
+	pages := make([]*manga.Page, numPages)
+	for i := 0; i < numPages; i++ {
+		pages[i] = createTestPage(t, i+1, 100, 100, "jpeg")
+	}
+
+	chapter := &manga.Chapter{
+		FilePath: "/test/chapter_many_pages.cbz",
+		Pages:    pages,
+	}
+
+	progress := func(message string, current uint32, total uint32) {
+		// No-op progress callback
+	}
+
+	// Run multiple iterations to increase the chance of hitting the race condition
+	for iteration := 0; iteration < 10; iteration++ {
+		t.Run(fmt.Sprintf("iteration_%d", iteration), func(t *testing.T) {
+			// Use a very short timeout to trigger context cancellation during processing
+			ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+			defer cancel()
+
+			// This should NOT deadlock - it should return quickly with context error
+			done := make(chan struct{})
+			var convertErr error
+			go func() {
+				defer close(done)
+				_, convertErr = converter.ConvertChapter(ctx, chapter, 80, false, progress)
+			}()
+
+			// Wait with a reasonable timeout - if it takes longer than 5 seconds, we have a deadlock
+			select {
+			case <-done:
+				// Expected - conversion should complete (with error) quickly
+				assert.Error(t, convertErr, "Expected context error")
+			case <-time.After(5 * time.Second):
+				t.Fatal("Deadlock detected: ConvertChapter did not return within 5 seconds")
+			}
+		})
+	}
+}
+
+// TestConverter_ConvertChapter_ManyPages_WithSplit_NoDeadlock tests that converting chapters
+// with many pages and split enabled does not cause a deadlock.
+func TestConverter_ConvertChapter_ManyPages_WithSplit_NoDeadlock(t *testing.T) {
+	converter := New()
+	err := converter.PrepareConverter()
+	require.NoError(t, err)
+
+	// Create pages with varying heights, some requiring splits
+	numPages := 30
+	pages := make([]*manga.Page, numPages)
+	for i := 0; i < numPages; i++ {
+		height := 1000 // Normal height
+		if i%5 == 0 {
+			height = 5000 // Tall image that will be split
+		}
+		pages[i] = createTestPage(t, i+1, 100, height, "png")
+	}
+
+	chapter := &manga.Chapter{
+		FilePath: "/test/chapter_split_test.cbz",
+		Pages:    pages,
+	}
+
+	progress := func(message string, current uint32, total uint32) {
+		// No-op progress callback
+	}
+
+	// Run multiple iterations with short timeouts
+	for iteration := 0; iteration < 10; iteration++ {
+		t.Run(fmt.Sprintf("iteration_%d", iteration), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+			defer cancel()
+
+			done := make(chan struct{})
+			var convertErr error
+			go func() {
+				defer close(done)
+				_, convertErr = converter.ConvertChapter(ctx, chapter, 80, true, progress) // split=true
+			}()
+
+			select {
+			case <-done:
+				assert.Error(t, convertErr, "Expected context error")
+			case <-time.After(5 * time.Second):
+				t.Fatal("Deadlock detected: ConvertChapter with split did not return within 5 seconds")
+			}
+		})
+	}
+}
+
+// TestConverter_ConvertChapter_ConcurrentChapters_NoDeadlock simulates the scenario from the
+// original bug report where multiple chapters are processed in parallel with parallelism > 1.
+// This test ensures no deadlock occurs when multiple goroutines are converting chapters concurrently.
+func TestConverter_ConvertChapter_ConcurrentChapters_NoDeadlock(t *testing.T) {
+	converter := New()
+	err := converter.PrepareConverter()
+	require.NoError(t, err)
+
+	// Create multiple chapters, each with many pages
+	numChapters := 20
+	pagesPerChapter := 30
+	chapters := make([]*manga.Chapter, numChapters)
+
+	for c := 0; c < numChapters; c++ {
+		pages := make([]*manga.Page, pagesPerChapter)
+		for i := 0; i < pagesPerChapter; i++ {
+			pages[i] = createTestPage(t, i+1, 100, 100, "jpeg")
+		}
+		chapters[c] = &manga.Chapter{
+			FilePath: fmt.Sprintf("/test/chapter_%d.cbz", c+1),
+			Pages:    pages,
+		}
+	}
+
+	progress := func(message string, current uint32, total uint32) {}
+
+	// Process chapters concurrently with short timeouts (simulating parallelism flag)
+	parallelism := 4
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, parallelism)
+
+	// Overall test timeout
+	testCtx, testCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer testCancel()
+
+	for _, chapter := range chapters {
+		wg.Add(1)
+		semaphore <- struct{}{} // Acquire
+
+		go func(ch *manga.Chapter) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // Release
+
+			// Use very short timeout to trigger cancellation
+			ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+			defer cancel()
+
+			// This should not deadlock
+			_, _ = converter.ConvertChapter(ctx, ch, 80, false, progress)
+		}(chapter)
+	}
+
+	// Wait for all conversions with a timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines completed successfully
+	case <-testCtx.Done():
+		t.Fatal("Deadlock detected: Concurrent chapter conversions did not complete within 30 seconds")
+	}
 }
