@@ -348,7 +348,7 @@ func TestFormatFlagCaseInsensitive(t *testing.T) {
 }
 
 // TestConvertCbzCommand_ManyFiles_NoDeadlock tests that processing many files in parallel
-// does not cause a deadlock. This reproduces the scenario from issue where processing
+// does not cause a deadlock. This reproduces the scenario where processing
 // recursive folders of CBZ files with parallelism > 1 could cause a "all goroutines are asleep - deadlock!" error.
 func TestConvertCbzCommand_ManyFiles_NoDeadlock(t *testing.T) {
 	// Create a temporary directory for testing

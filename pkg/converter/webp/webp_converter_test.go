@@ -426,7 +426,7 @@ func TestConverter_ConvertChapter_Timeout(t *testing.T) {
 }
 
 // TestConverter_ConvertChapter_ManyPages_NoDeadlock tests that converting chapters with many pages
-// does not cause a deadlock. This test reproduces the scenario from issue #XX where processing
+// does not cause a deadlock. This test reproduces the scenario where processing
 // many files with context cancellation could cause "all goroutines are asleep - deadlock!" error.
 // The fix ensures that wgConvertedPages.Done() is called when context is cancelled after Add(1).
 func TestConverter_ConvertChapter_ManyPages_NoDeadlock(t *testing.T) {
