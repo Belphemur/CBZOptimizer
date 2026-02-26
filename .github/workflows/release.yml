@@ -49,11 +49,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # After GoReleaser runs, attest all the files in ./dist/checksums.txt:
       - name: Attest Build Provenance for Archives
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-checksums: ./dist/checksums.txt
       # After GoReleaser runs, attest all the images in ./dist/digests.txt:
       - name: Attest Build Provenance for Docker Images
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-checksums: ./dist/digests.txt
