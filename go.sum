@@ -142,6 +142,8 @@ github.com/pablodz/inotifywaitgo v0.0.9 h1:njquRbBU7fuwIe5rEvtaniVBjwWzcpdUVptSg
 github.com/pablodz/inotifywaitgo v0.0.9/go.mod h1:hAfx2oN+WKg8miwUKPs52trySpPignlRBRxWcXVHku0=
 github.com/pablodz/inotifywaitgo v0.0.11 h1:Yvh/kPv+6pke1zOwsej14H5sK07m2OeW3S0xdwUnmO4=
 github.com/pablodz/inotifywaitgo v0.0.11/go.mod h1:JWyDC6H+5oZRdUJUgKuaye+8Ph5hEs6HVzVoPKzWSGI=
+github.com/pablodz/inotifywaitgo v0.0.12 h1:DVJJTFMDlSAdO46yisPF2vzozs/r+4k6ih8MVghq78M=
+github.com/pablodz/inotifywaitgo v0.0.12/go.mod h1:JWyDC6H+5oZRdUJUgKuaye+8Ph5hEs6HVzVoPKzWSGI=
 github.com/pelletier/go-toml/v2 v2.2.4 h1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0t5Ec4=
 github.com/pelletier/go-toml/v2 v2.2.4/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/pierrec/lz4/v4 v4.1.22 h1:cKFw6uJDK+/gfw5BcDL0JL5aBsAFdsIT18eRtLj7VIU=

@@ -7,7 +7,7 @@ require (
 	github.com/belphemur/go-webpbin/v2 v2.1.0
 	github.com/mholt/archives v0.1.5
 	github.com/oliamb/cutter v0.2.2
-	github.com/pablodz/inotifywaitgo v0.0.11
+	github.com/pablodz/inotifywaitgo v0.0.12
 	github.com/rs/zerolog v1.35.1
 	github.com/samber/lo v1.53.0
 	github.com/spf13/cobra v1.10.2
