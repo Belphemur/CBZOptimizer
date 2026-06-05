@@ -210,6 +210,8 @@ github.com/thediveo/enumflag/v2 v2.1.0 h1:F80w/h1U4B3/sBpFVUewzMVTfLk2m0D60+61UC
 github.com/thediveo/enumflag/v2 v2.1.0/go.mod h1:wj2B0dHqqFOqIgnJ7mD8s97wK7/46oOZvDg93muD68g=
 github.com/thediveo/enumflag/v2 v2.2.0 h1:T8ty4R+Pv+pYiK+lSVSk45MuyM39T/29ZZTH/6QH3Ls=
 github.com/thediveo/enumflag/v2 v2.2.0/go.mod h1:3ax7ccNoUb+rnHhNepTx1vdhrlKyMUefD+Z8kvxiVg4=
+github.com/thediveo/enumflag/v2 v2.2.1 h1:sB6zJBA7G5Qk5tcCK5f25H8Rfern7idwTASdBxY4inQ=
+github.com/thediveo/enumflag/v2 v2.2.1/go.mod h1:Fa35DiSMi7oIXNc1VJPktJVlsk4NPW8dYY3Zjvhx+S4=
 github.com/thediveo/success v1.0.2 h1:w+r3RbSjLmd7oiNnlCblfGqItcsaShcuAorRVh/+0xk=
 github.com/thediveo/success v1.0.2/go.mod h1:hdPJB77k70w764lh8uLUZgNhgeTl3DYeZ4d4bwMO2CU=
 github.com/ulikunitz/xz v0.5.8/go.mod h1:nbz6k7qbPmH4IRqmfOplQw/tblSgqTqBwxkY0oWt/14=
@@ -355,6 +357,8 @@ golang.org/x/sys v0.36.0 h1:KVRy2GtZBrk1cBYA7MKu5bEZFxQk4NIDV6RLVcC8o0k=
 golang.org/x/sys v0.36.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
 golang.org/x/sys v0.40.0 h1:DBZZqJ2Rkml6QMQsZywtnjnnGvHza6BTfYFWY9kjEWQ=
 golang.org/x/sys v0.40.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
+golang.org/x/sys v0.45.0 h1:dO4czNzziLiiXplLQgBCEpCvXQ3dnkn0SdaZSYdQ+FY=
+golang.org/x/sys v0.45.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
 golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
 golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
 golang.org/x/term v0.5.0/go.mod h1:jMB1sMXY+tzblOD4FWmEbocvup2/aLOaQEp7JmGp78k=
