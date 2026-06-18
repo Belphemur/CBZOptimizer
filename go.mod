@@ -15,7 +15,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/thediveo/enumflag/v2 v2.2.1
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976
-	golang.org/x/image v0.42.0
+	golang.org/x/image v0.43.0
 )
 
 require (
