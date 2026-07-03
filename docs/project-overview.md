@@ -19,7 +19,7 @@ CBZOptimizer is a Go CLI that optimizes comic archives (`.cbz` and `.cbr`) by co
 
 ## Watch mode
 
-`watch` monitors a directory tree for archive file changes and runs optimization automatically.
+`watch` monitors a directory tree for archive file changes and runs optimization automatically. By default it only reacts to changes going forward; pass `--backfill` to also optimize archives that already exist in the folder at startup.
 
 ## Key runtime requirements
 

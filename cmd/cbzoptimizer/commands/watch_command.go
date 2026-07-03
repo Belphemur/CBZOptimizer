@@ -41,6 +41,9 @@ func init() {
 	// Setup common flags (format, quality, override, split, timeout) with viper binding
 	setupCommonFlags(command, &converterType, 85, true, false, true)
 
+	command.Flags().Bool("backfill", false, "Optimize CBZ/CBR files that already exist in the watched folder at startup, before watching for new changes")
+	_ = viper.BindPFlag("backfill", command.Flags().Lookup("backfill"))
+
 	AddCommand(command)
 }
 func WatchCommand(_ *cobra.Command, args []string) error {
@@ -64,6 +67,8 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 
 	timeout := viper.GetDuration("timeout")
 
+	backfill := viper.GetBool("backfill")
+
 	converterType := constant.FindConversionFormat(viper.GetString("format"))
 	chapterConverter, err := converter.Get(converterType)
 	if err != nil {
@@ -74,7 +79,7 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare converter: %w", err)
 	}
-	log.Info().Str("path", path).Bool("override", override).Uint8("quality", quality).Str("format", converterType.String()).Bool("split", split).Msg("Watching directory")
+	log.Info().Str("path", path).Bool("override", override).Uint8("quality", quality).Str("format", converterType.String()).Bool("split", split).Bool("backfill", backfill).Msg("Watching directory")
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -100,10 +105,17 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 	debouncer := newEventDebouncer(debounceDelay, queue.Enqueue)
 	defer debouncer.Stop()
 
+	// Note: existing archives already present under path when the watch
+	// starts are left untouched unless --backfill is set. Watch mode only
+	// reacts to filesystem events going forward by default; use the
+	// `optimize` command (or pass --backfill) to process a library's
+	// existing contents. Archives inside a directory that is created/moved
+	// into the watched tree *after* startup are always back-filled below,
+	// since only the directory itself generates an fsnotify event.
 	if err := addRecursiveWatch(watcher, path); err != nil {
 		return fmt.Errorf("failed to watch path %s: %w", path, err)
 	}
-	backfillExistingArchives(path, debouncer.Trigger)
+	maybeBackfillExistingArchives(backfill, path, debouncer.Trigger)
 
 	for {
 		select {
@@ -192,6 +204,17 @@ func backfillExistingArchives(rootPath string, process func(path string)) {
 	if err != nil {
 		log.Error().Err(err).Str("path", rootPath).Msg("Failed to scan directory for existing archives")
 	}
+}
+
+// maybeBackfillExistingArchives runs backfillExistingArchives against
+// rootPath only when enabled is true. It exists as its own function (rather
+// than inlining the `if` check at the call site) so the gating decision used
+// by WatchCommand can be exercised directly in tests.
+func maybeBackfillExistingArchives(enabled bool, rootPath string, process func(path string)) {
+	if !enabled {
+		return
+	}
+	backfillExistingArchives(rootPath, process)
 }
 
 func shouldProcessWatchEvent(event fsnotify.Event) bool {
