@@ -77,6 +77,25 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }}
     env:
       - CGO_ENABLED=0
+  - id: encoder-setup
+    main: cmd/encoder-setup/main.go
+    binary: encoder-setup
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # ensures mod timestamp to be the commit timestamp
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      # trims path
+      - -trimpath
+    tags:
+      - encoder_setup
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }}
+    env:
+      - CGO_ENABLED=0
 
 # Configures the checksum file generation
 # https://goreleaser.com/customization/checksum/
@@ -112,6 +131,7 @@ dockers_v2:
   - id: cbzoptimizer-image
     ids:
       - cbzoptimizer
+      - encoder-setup
     platforms:
       - linux/amd64
       - linux/arm64

@@ -42,6 +42,15 @@ jobs:
           go mod download
           go mod verify
 
+      - name: Build encoder-setup utility
+        run: |
+          go build -tags encoder_setup -o encoder-setup ./cmd/encoder-setup
+          ls -lh encoder-setup
+
+      - name: Run encoder-setup
+        run: |
+          ./encoder-setup
+
       - name: Install gotestsum
         run: |
           go install gotest.tools/gotestsum@latest
@@ -56,4 +65,5 @@ jobs:
           echo "✅ gopls (Go language server) installed"
           echo "✅ golangci-lint installed"
           echo "✅ Dependencies downloaded and verified"
+          echo "✅ WebP encoder configured (libwebp 1.6.0)"
           echo "✅ gotestsum (test runner) installed"
