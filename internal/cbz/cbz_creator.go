@@ -3,6 +3,7 @@ package cbz
 import (
 	"archive/zip"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -56,7 +57,7 @@ func WriteChapterToCBZ(chapter *manga.Chapter, outputFilePath string) error {
 			Bool("is_splitted", page.IsSplitted).
 			Uint16("split_part", page.SplitPartIndex).
 			Str("filename", fileName).
-			Int("size", len(page.Contents.Bytes())).
+			Uint64("size", page.Size).
 			Msg("Writing page to CBZ archive")
 
 		// Create a new file in the ZIP archive
@@ -70,17 +71,30 @@ func WriteChapterToCBZ(chapter *manga.Chapter, outputFilePath string) error {
 			return fmt.Errorf("failed to create file in .cbz: %w", err)
 		}
 
-		// Write the page contents to the file
-		bytesWritten, err := fileWriter.Write(page.Contents.Bytes())
+		// Stream the page contents into the archive. This transparently
+		// handles pages staged on disk (see manga.Page.TempFilePath) so we
+		// never need to hold the whole chapter's contents in memory at once.
+		pageReader, err := page.Open()
+		if err != nil {
+			log.Error().Str("output_path", outputFilePath).Str("filename", fileName).Err(err).Msg("Failed to open page contents")
+			return fmt.Errorf("failed to open page contents: %w", err)
+		}
+
+		bytesWritten, err := io.Copy(fileWriter, pageReader)
+		closeErr := pageReader.Close()
 		if err != nil {
 			log.Error().Str("output_path", outputFilePath).Str("filename", fileName).Err(err).Msg("Failed to write page contents")
 			return fmt.Errorf("failed to write page contents: %w", err)
+		}
+		if closeErr != nil {
+			log.Error().Str("output_path", outputFilePath).Str("filename", fileName).Err(closeErr).Msg("Failed to close page contents reader")
+			return fmt.Errorf("failed to close page contents reader: %w", closeErr)
 		}
 
 		log.Debug().
 			Str("output_path", outputFilePath).
 			Str("filename", fileName).
-			Int("bytes_written", bytesWritten).
+			Int64("bytes_written", bytesWritten).
 			Msg("Page written successfully")
 	}
 

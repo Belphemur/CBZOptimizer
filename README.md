@@ -87,7 +87,7 @@ docker run -v /path/to/comics:/comics ghcr.io/belphemur/cbzoptimizer:latest watc
 ### Flags
 
 - `--quality`, `-q`: Quality for conversion (0-100). Default is 85.
-- `--parallelism`, `-n`: Number of chapters to convert in parallel. Default is 2.
+- `--parallelism`, `-n`: Number of chapters to convert in parallel. Default is 2. Regardless of this value, the total number of pages converted at the same time (i.e. concurrent `cwebp` processes) is capped to the number of CPU cores, so increasing parallelism spreads that budget across more chapters rather than multiplying resource usage.
 - `--override`, `-o`: Override the original files. For CBZ files, overwrites the original. For CBR files, deletes the original CBR and creates a new CBZ. Default is false.
 - `--split`, `-s`: Split long pages into smaller chunks. Default is false.
 - `--format`, `-f`: Format to convert the images to (currently supports: webp). Default is webp.

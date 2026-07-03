@@ -51,6 +51,13 @@ func TestOptimizeIntegration(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		// Skip the "large" fixtures directory: it holds the Git LFS-tracked
+		// fixture used exclusively by TestOptimizeIntegration_LargeFile,
+		// which may only be a small LFS pointer file if the content wasn't
+		// fetched, and shouldn't be exercised by this generic test.
+		if info.IsDir() && filepath.Base(path) == "large" {
+			return filepath.SkipDir
+		}
 		if !info.IsDir() {
 			fileName := strings.ToLower(info.Name())
 			if (strings.HasSuffix(fileName, ".cbz") || strings.HasSuffix(fileName, ".cbr")) && !strings.Contains(fileName, "converted") {

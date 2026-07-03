@@ -9,6 +9,7 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -86,11 +87,19 @@ func createTestPage(t *testing.T, index int, width, height int, format string) *
 }
 
 func validateConvertedImage(t *testing.T, page *manga.Page) {
-	require.NotNil(t, page.Contents)
-	require.Greater(t, page.Contents.Len(), 0)
+	require.True(t, page.Contents != nil || page.TempFilePath != "", "page should have contents in memory or staged on disk")
+	require.Greater(t, page.Size, uint64(0))
+
+	reader, err := page.Open()
+	require.NoError(t, err)
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.Greater(t, len(data), 0)
 
 	// Try to decode the image
-	img, format, err := image.Decode(bytes.NewReader(page.Contents.Bytes()))
+	img, format, err := image.Decode(bytes.NewReader(data))
 	require.NoError(t, err, "Failed to decode converted image")
 
 	if page.Extension == ".webp" {
@@ -291,7 +300,7 @@ func TestConverter_convertPage(t *testing.T) {
 			require.NoError(t, err)
 			container := manga.NewContainer(page, img, tt.format, tt.isToBeConverted)
 
-			converted, err := converter.convertPage(container, 80)
+			converted, err := converter.convertPage(container, 80, t.TempDir())
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -327,7 +336,7 @@ func TestConverter_convertPage_EncodingError(t *testing.T) {
 
 	container := manga.NewContainer(corruptedPage, nil, "png", true)
 
-	converted, err := converter.convertPage(container, 80)
+	converted, err := converter.convertPage(container, 80, t.TempDir())
 
 	// This should return nil container and error because encoding will fail with nil image
 	assert.Error(t, err)

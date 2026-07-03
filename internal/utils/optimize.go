@@ -91,6 +91,15 @@ func Optimize(options *OptimizeOptions) error {
 		return fmt.Errorf("failed to convert chapter")
 	}
 
+	// Clean up the staging temp folder (if any) used to hold converted page
+	// contents on disk once we're done with the chapter, regardless of
+	// success or failure below.
+	defer func() {
+		if cleanupErr := convertedChapter.Cleanup(); cleanupErr != nil {
+			log.Warn().Str("file", chapter.FilePath).Err(cleanupErr).Msg("Failed to remove staging temp folder")
+		}
+	}()
+
 	log.Debug().
 		Str("file", chapter.FilePath).
 		Int("original_pages", len(chapter.Pages)).
