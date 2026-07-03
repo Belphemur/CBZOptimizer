@@ -78,6 +78,14 @@ Watch a folder for new CBZ/CBR files and optimize them automatically:
 cbzconverter watch [folder] --quality 85 --override --format webp --split
 ```
 
+Watch mode only reacts to filesystem events that occur *after* it starts; it does not
+scan and optimize files that already exist in the folder when it starts. Run the
+`optimize` command first if you need to process an existing library, then use `watch`
+to keep it up to date going forward. The only exception is a directory that gets
+created/moved into the watched tree while watch mode is running: since no per-file
+event is emitted for files already inside it, its existing archives are processed once
+when the directory is first detected.
+
 Or with Docker:
 
 ```sh

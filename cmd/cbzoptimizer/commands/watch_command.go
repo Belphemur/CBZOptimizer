@@ -100,10 +100,16 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 	debouncer := newEventDebouncer(debounceDelay, queue.Enqueue)
 	defer debouncer.Stop()
 
+	// Note: existing archives already present under path when the watch
+	// starts are intentionally left untouched. Watch mode only reacts to
+	// filesystem events going forward; use the `optimize` command to process
+	// a library's existing contents. Archives inside a directory that is
+	// created/moved into the watched tree *after* startup are still
+	// back-filled below, since only the directory itself generates an
+	// fsnotify event.
 	if err := addRecursiveWatch(watcher, path); err != nil {
 		return fmt.Errorf("failed to watch path %s: %w", path, err)
 	}
-	backfillExistingArchives(path, debouncer.Trigger)
 
 	for {
 		select {
