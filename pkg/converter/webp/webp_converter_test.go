@@ -54,7 +54,9 @@ func encodeImage(img image.Image, format string) (*bytes.Buffer, string, error) 
 		}
 		return buf, ".gif", nil
 	case "webp":
-		PrepareEncoder()
+		if err := PrepareEncoder(); err != nil {
+			return nil, "", err
+		}
 		if err := Encode(buf, img, 80); err != nil {
 			return nil, "", err
 		}
