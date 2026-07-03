@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Page struct {
@@ -56,22 +58,29 @@ func (page *Page) Stage(tempDir string, content *bytes.Buffer, extension string)
 	if err != nil {
 		return fmt.Errorf("failed to create staging file: %w", err)
 	}
+	fileName := file.Name()
 
 	written, writeErr := file.Write(content.Bytes())
 	closeErr := file.Close()
+	if writeErr == nil && closeErr == nil && written == content.Len() {
+		page.TempFilePath = fileName
+		page.Extension = extension
+		page.Size = uint64(written)
+		page.Contents = nil
+		return nil
+	}
+
+	// Something went wrong: remove the incomplete/partial staging file
+	// rather than leaving corrupted data behind on disk.
+	if removeErr := os.Remove(fileName); removeErr != nil {
+		log.Warn().Str("file", fileName).Err(removeErr).Msg("Failed to remove incomplete staging file")
+	}
+
 	if writeErr != nil {
 		return fmt.Errorf("failed to write staging file: %w", writeErr)
 	}
 	if closeErr != nil {
 		return fmt.Errorf("failed to close staging file: %w", closeErr)
 	}
-	if written != content.Len() {
-		return fmt.Errorf("short write to staging file: wrote %d of %d bytes", written, content.Len())
-	}
-
-	page.TempFilePath = file.Name()
-	page.Extension = extension
-	page.Size = uint64(written)
-	page.Contents = nil
-	return nil
+	return fmt.Errorf("short write to staging file: wrote %d of %d bytes", written, content.Len())
 }
