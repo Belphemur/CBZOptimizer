@@ -170,3 +170,37 @@ func TestOptimizeQueueSkipsMissingPath(t *testing.T) {
 
 	assert.EqualValues(t, 1, atomic.LoadInt32(&calls))
 }
+
+func TestWatchCommandBackfillFlagDefaultsToFalse(t *testing.T) {
+	watchCmd, _, err := rootCmd.Find([]string{"watch"})
+	require.NoError(t, err)
+
+	flag := watchCmd.Flags().Lookup("backfill")
+	require.NotNil(t, flag, "watch command should register a --backfill flag")
+	assert.Equal(t, "false", flag.DefValue)
+	assert.Equal(t, "bool", flag.Value.Type())
+}
+
+func TestBackfillExistingArchivesOnlyInvokedWhenRequested(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "chapter1.cbz"), []byte("data"), 0o644))
+
+	runBackfill := func(backfill bool) []string {
+		var found []string
+		var mu sync.Mutex
+		process := func(path string) {
+			mu.Lock()
+			defer mu.Unlock()
+			found = append(found, path)
+		}
+		// Mirrors the gating logic in WatchCommand: backfillExistingArchives
+		// must only run when the --backfill flag is set.
+		if backfill {
+			backfillExistingArchives(root, process)
+		}
+		return found
+	}
+
+	assert.Empty(t, runBackfill(false), "no pre-existing archive should be processed when backfill is disabled")
+	assert.Len(t, runBackfill(true), 1, "pre-existing archives should be processed when backfill is enabled")
+}

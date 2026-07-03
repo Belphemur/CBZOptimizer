@@ -78,13 +78,15 @@ Watch a folder for new CBZ/CBR files and optimize them automatically:
 cbzconverter watch [folder] --quality 85 --override --format webp --split
 ```
 
-Watch mode only reacts to filesystem events that occur *after* it starts; it does not
-scan and optimize files that already exist in the folder when it starts. Run the
+Watch mode only reacts to filesystem events that occur *after* it starts; by default it does
+not scan and optimize files that already exist in the folder when it starts. Run the
 `optimize` command first if you need to process an existing library, then use `watch`
-to keep it up to date going forward. The only exception is a directory that gets
-created/moved into the watched tree while watch mode is running: since no per-file
-event is emitted for files already inside it, its existing archives are processed once
-when the directory is first detected.
+to keep it up to date going forward, or pass `--backfill` to have `watch` optimize the
+existing files at startup before it begins watching for new changes. The only exception
+is a directory that gets created/moved into the watched tree while watch mode is
+running: since no per-file event is emitted for files already inside it, its existing
+archives are always processed once when the directory is first detected, regardless of
+`--backfill`.
 
 Or with Docker:
 
@@ -102,6 +104,7 @@ docker run -v /path/to/comics:/comics ghcr.io/belphemur/cbzoptimizer:latest watc
   - Can be specified as: `--format webp`, `-f webp`, or `--format=webp`
   - Case-insensitive: `webp`, `WEBP`, and `WebP` are all valid
 - `--timeout`, `-t`: Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout. Default is 0.
+- `--backfill`: *(`watch` only)* Optimize CBZ/CBR files that already exist in the watched folder at startup, before watching for new changes. Default is false.
 - `--log`, `-l`: Set log level; can be 'panic', 'fatal', 'error', 'warn', 'info', 'debug', or 'trace'. Default is info.
 
 ## Logging
