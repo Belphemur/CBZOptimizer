@@ -14,6 +14,7 @@ This repository contains AI-agent oriented project context.
 - Logging: zerolog
 - Error wrapping: `fmt.Errorf("context: %w", err)`
 - Prefer small, focused changes.
+- Commit messages: follow [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `fix(watch): debounce fsnotify events`, `docs: clarify commit convention`).
 
 ## Areas to know
 
