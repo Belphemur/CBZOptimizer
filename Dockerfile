@@ -1,35 +1,31 @@
-FROM debian:trixie-slim
+FROM alpine:latest
 LABEL authors="Belphemur"
 ARG TARGETPLATFORM
 ARG APP_PATH=/usr/local/bin/CBZOptimizer
 ENV USER=abc
 ENV CONFIG_FOLDER=/config
 ENV PUID=99
-ENV DEBIAN_FRONTEND=noninteractive
+# libwebp-tools (cwebp) is installed via apk below into /usr/bin; point go-webpbin
+# at it directly so it doesn't try to download a glibc prebuilt binary.
+ENV VENDOR_PATH=/usr/bin
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends adduser && \
-    addgroup --system users && \
-    adduser \
-    --system \
-    --home "${CONFIG_FOLDER}" \
-    --uid "${PUID}" \
-    --ingroup users \
-    --disabled-password \
-    "${USER}" && \
-    apt-get purge -y --auto-remove adduser
+RUN adduser \
+    -S \
+    -D \
+    -H \
+    -h "${CONFIG_FOLDER}" \
+    -u "${PUID}" \
+    -G users \
+    -s /bin/bash \
+    "${USER}"
 
 COPY ${TARGETPLATFORM}/CBZOptimizer ${APP_PATH}
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && \
-    apt-get full-upgrade -y && \
-    apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     bash \
     ca-certificates \
-    bash-completion && \
+    bash-completion \
+    libwebp-tools && \
     chmod +x ${APP_PATH} && \
     ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash
 
