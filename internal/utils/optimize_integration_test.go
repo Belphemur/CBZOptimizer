@@ -15,7 +15,7 @@ import (
 )
 
 func TestOptimizeIntegration(t *testing.T) {
-	// Skip integration tests if no libwebp is available or testdata doesn't exist
+	// Skip integration tests if testdata doesn't exist
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}

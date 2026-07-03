@@ -17,7 +17,7 @@ CBZOptimizer is a Go-based command-line tool designed to optimize CBZ (Comic Boo
 - **Language:** Go 1.25+
 - **CLI Framework:** Cobra + Viper
 - **Logging:** zerolog (structured logging)
-- **Image Processing:** go-webpbin/v2 for WebP encoding
+- **Image Processing:** HugoSmits86/nativewebp (pure Go WebP encoder) for WebP encoding
 - **Archive Handling:** mholt/archives for CBZ/CBR processing
 - **Testing:** testify + gotestsum
 
@@ -26,11 +26,9 @@ CBZOptimizer is a Go-based command-line tool designed to optimize CBZ (Comic Boo
 ```
 .
 ├── cmd/
-│   ├── cbzoptimizer/         # Main CLI application
-│   │   ├── commands/         # Cobra commands (optimize, watch)
-│   │   └── main.go          # Entry point
-│   └── encoder-setup/        # WebP encoder setup utility
-│       └── main.go          # Encoder initialization (build tag: encoder_setup)
+│   └── cbzoptimizer/         # Main CLI application
+│       ├── commands/         # Cobra commands (optimize, watch)
+│       └── main.go          # Entry point
 ├── internal/
 │   ├── cbz/                 # CBZ/CBR file operations
 │   │   ├── cbz_loader.go   # Load and parse comic archives
@@ -56,17 +54,7 @@ CBZOptimizer is a Go-based command-line tool designed to optimize CBZ (Comic Boo
 
 ### Prerequisites
 
-Before building or testing, the WebP encoder must be set up:
-
-```bash
-# Build the encoder-setup utility
-go build -tags encoder_setup -o encoder-setup ./cmd/encoder-setup
-
-# Run encoder setup (downloads and configures libwebp 1.6.0)
-./encoder-setup
-```
-
-This step is **required** before running tests or building the main application.
+The WebP encoder (`github.com/HugoSmits86/nativewebp`) is a pure Go implementation with no external binaries, libraries, or setup steps required. Building and testing works out of the box with a standard Go toolchain.
 
 ### Build Commands
 
@@ -200,7 +188,7 @@ log.Error().Str("file", path).Err(err).Msg("Failed to load chapter")
 ### Dependencies
 
 **Key external packages:**
-- `github.com/belphemur/go-webpbin/v2` - WebP encoding (libwebp wrapper)
+- `github.com/HugoSmits86/nativewebp` - Pure Go lossless WebP encoding/decoding (no libwebp/cgo dependency)
 - `github.com/mholt/archives` - Archive format handling
 - `github.com/spf13/cobra` - CLI framework
 - `github.com/spf13/viper` - Configuration management
@@ -212,10 +200,8 @@ log.Error().Str("file", path).Err(err).Msg("Failed to load chapter")
 
 The Dockerfile uses a multi-stage build and requires:
 1. The compiled `CBZOptimizer` binary (from goreleaser)
-2. The `encoder-setup` binary (built with `-tags encoder_setup`)
-3. The encoder-setup is run during image build to configure WebP encoder
 
-The encoder must be set up in the container before the application runs.
+Since the WebP encoder is pure Go, no additional encoder setup step is needed in the container.
 
 ## Common Tasks
 
@@ -259,7 +245,6 @@ The core optimization logic is in `internal/utils/optimize.go`:
 
 1. **test.yml** - Runs on every push/PR
    - Sets up Go environment
-   - Runs encoder-setup
    - Executes tests with coverage
    - Uploads results to Codecov
 
@@ -268,8 +253,6 @@ The core optimization logic is in `internal/utils/optimize.go`:
    - Builds Docker images for linux/amd64 and linux/arm64
    - Signs releases with cosign
    - Generates SBOMs with syft
-
-3. **qodana.yml** - Code quality analysis
 
 ### Release Process
 

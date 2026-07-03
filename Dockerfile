@@ -37,8 +37,4 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 USER ${USER}
 
-# Need to run as the user to have the right config folder created
-RUN --mount=type=bind,source=${TARGETPLATFORM},target=/tmp/target \
-    /tmp/target/encoder-setup
-
 ENTRYPOINT ["/usr/local/bin/CBZOptimizer"]
