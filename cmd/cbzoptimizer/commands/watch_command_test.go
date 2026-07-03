@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	utils2 "github.com/belphemur/CBZOptimizer/v2/internal/utils"
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsComicArchive(t *testing.T) {
@@ -55,9 +57,20 @@ func TestShouldProcessWatchEvent(t *testing.T) {
 }
 
 func TestAddRecursiveWatchSkipsUnreadableSubdirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits are not reliably enforced on Windows")
+	}
+
 	root := t.TempDir()
 	nested := filepath.Join(root, "nested")
 	assert.NoError(t, os.MkdirAll(nested, 0o755))
+	assert.NoError(t, os.Chmod(nested, 0o000))
+	defer func() {
+		assert.NoError(t, os.Chmod(nested, 0o755))
+	}()
+	if _, err := os.ReadDir(nested); err == nil {
+		t.Skip("cannot make nested directory unreadable in this environment")
+	}
 
 	watcher, err := fsnotify.NewWatcher()
 	assert.NoError(t, err)
@@ -99,11 +112,11 @@ func TestEventDebouncerCoalescesBurstsIntoSingleCall(t *testing.T) {
 	// Simulate a burst of events for the same path.
 	for i := 0; i < 5; i++ {
 		debouncer.Trigger("/tmp/chapter.cbz")
-		time.Sleep(5 * time.Millisecond)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	assert.EqualValues(t, 1, atomic.LoadInt32(&calls))
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&calls) == 1
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestEventDebouncerHandlesMultiplePaths(t *testing.T) {
@@ -119,22 +132,41 @@ func TestEventDebouncerHandlesMultiplePaths(t *testing.T) {
 	debouncer.Trigger("/tmp/a.cbz")
 	debouncer.Trigger("/tmp/b.cbz")
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, 1, seen["/tmp/a.cbz"])
-	assert.Equal(t, 1, seen["/tmp/b.cbz"])
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return seen["/tmp/a.cbz"] == 1 && seen["/tmp/b.cbz"] == 1
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestOptimizeQueueSkipsMissingPath(t *testing.T) {
 	q := newOptimizeQueue(1, &utils2.OptimizeOptions{})
 	defer q.Stop()
+	var calls int32
+	done := make(chan struct{}, 1)
+	existing := filepath.Join(t.TempDir(), "existing.cbz")
+	require.NoError(t, os.WriteFile(existing, []byte("data"), 0o644))
+	q.optimize = func(options *utils2.OptimizeOptions) error {
+		if options.Path == existing {
+			atomic.AddInt32(&calls, 1)
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}
+		return nil
+	}
 
 	// Enqueue a path that doesn't exist; process should skip it without
 	// panicking or blocking since it never reaches utils2.Optimize.
 	q.Enqueue(filepath.Join(t.TempDir(), "missing.cbz"))
+	q.Enqueue(existing)
 
-	// Give the worker a moment to drain the job.
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for existing path to be processed")
+	}
+
+	assert.EqualValues(t, 1, atomic.LoadInt32(&calls))
 }

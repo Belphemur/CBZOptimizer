@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -158,6 +159,10 @@ func addRecursiveWatch(watcher *fsnotify.Watcher, rootPath string) error {
 			return nil
 		}
 		if err := watcher.Add(path); err != nil {
+			if errors.Is(err, fs.ErrPermission) {
+				log.Warn().Err(err).Str("path", path).Msg("Skipping unreadable directory while setting up watch")
+				return nil
+			}
 			return fmt.Errorf("failed to watch directory %s: %w", path, err)
 		}
 		return nil
@@ -208,15 +213,21 @@ type eventDebouncer struct {
 	delay   time.Duration
 	onQuiet func(path string)
 
-	mu     sync.Mutex
-	timers map[string]*time.Timer
+	mu       sync.Mutex
+	timers   map[string]*debounceTimer
+	inFlight sync.WaitGroup
+	stopping bool
+}
+
+type debounceTimer struct {
+	timer *time.Timer
 }
 
 func newEventDebouncer(delay time.Duration, onQuiet func(path string)) *eventDebouncer {
 	return &eventDebouncer{
 		delay:   delay,
 		onQuiet: onQuiet,
-		timers:  make(map[string]*time.Timer),
+		timers:  make(map[string]*debounceTimer),
 	}
 }
 
@@ -226,18 +237,27 @@ func (d *eventDebouncer) Trigger(path string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if existing, exists := d.timers[path]; exists {
-		existing.Stop()
+	if d.stopping {
+		return
 	}
 
-	var timer *time.Timer
-	timer = time.AfterFunc(d.delay, func() {
+	if existing, exists := d.timers[path]; exists {
+		if existing.timer.Stop() {
+			d.inFlight.Done()
+		}
+	}
+
+	entry := &debounceTimer{}
+	d.inFlight.Add(1)
+	entry.timer = time.AfterFunc(d.delay, func() {
+		defer d.inFlight.Done()
+
 		d.mu.Lock()
 		// Only the still-current timer for this path is allowed to clear the
 		// entry and fire onQuiet. If Trigger raced with this callback and
 		// already installed a newer timer, this stale invocation must not
 		// delete that newer entry or fire early.
-		owns := d.timers[path] == timer
+		owns := d.timers[path] == entry && !d.stopping
 		if owns {
 			delete(d.timers, path)
 		}
@@ -246,25 +266,32 @@ func (d *eventDebouncer) Trigger(path string) {
 			d.onQuiet(path)
 		}
 	})
-	d.timers[path] = timer
+	d.timers[path] = entry
 }
 
 // Stop cancels all pending timers.
 func (d *eventDebouncer) Stop() {
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.stopping = true
 	for path, timer := range d.timers {
-		timer.Stop()
+		if timer.timer.Stop() {
+			d.inFlight.Done()
+		}
 		delete(d.timers, path)
 	}
+	d.mu.Unlock()
+	d.inFlight.Wait()
 }
 
 // optimizeQueue is a small worker pool that runs Optimize jobs off of the
 // fsnotify event loop, so a slow conversion never blocks event draining.
 type optimizeQueue struct {
-	jobs    chan string
-	wg      sync.WaitGroup
-	options *utils2.OptimizeOptions
+	jobs     chan string
+	wg       sync.WaitGroup
+	mu       sync.RWMutex
+	stopped  bool
+	options  *utils2.OptimizeOptions
+	optimize func(options *utils2.OptimizeOptions) error
 }
 
 func newOptimizeQueue(workerCount int, options *utils2.OptimizeOptions) *optimizeQueue {
@@ -272,8 +299,9 @@ func newOptimizeQueue(workerCount int, options *utils2.OptimizeOptions) *optimiz
 		workerCount = 1
 	}
 	q := &optimizeQueue{
-		jobs:    make(chan string, 64),
-		options: options,
+		jobs:     make(chan string, 64),
+		options:  options,
+		optimize: utils2.Optimize,
 	}
 	q.wg.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
@@ -307,18 +335,26 @@ func (q *optimizeQueue) process(path string) {
 
 	options := *q.options
 	options.Path = path
-	if err := utils2.Optimize(&options); err != nil {
+	if err := q.optimize(&options); err != nil {
 		log.Error().Err(err).Str("file", path).Msg("Error processing file")
 	}
 }
 
 // Enqueue submits path for processing by the worker pool.
 func (q *optimizeQueue) Enqueue(path string) {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	if q.stopped {
+		return
+	}
 	q.jobs <- path
 }
 
 // Stop closes the job queue and waits for in-flight jobs to finish.
 func (q *optimizeQueue) Stop() {
+	q.mu.Lock()
+	q.stopped = true
 	close(q.jobs)
+	q.mu.Unlock()
 	q.wg.Wait()
 }
