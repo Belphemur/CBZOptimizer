@@ -12,7 +12,6 @@ ENV VENDOR_PATH=/usr/bin
 RUN adduser \
     -S \
     -D \
-    -H \
     -h "${CONFIG_FOLDER}" \
     -u "${PUID}" \
     -G users \
@@ -27,7 +26,9 @@ RUN apk add --no-cache \
     bash-completion \
     libwebp-tools && \
     chmod +x ${APP_PATH} && \
-    ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash
+    ${APP_PATH} completion bash > /etc/bash_completion.d/CBZOptimizer.bash && \
+    mkdir -p "${CONFIG_FOLDER}" && \
+    chown -R "${PUID}":users "${CONFIG_FOLDER}"
 
 
 USER ${USER}
