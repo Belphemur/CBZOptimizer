@@ -59,7 +59,7 @@ func init() {
 		ef,
 		"log", "l",
 		"Set log level; can be 'panic', 'fatal', 'error', 'warn', 'info', 'debug', or 'trace'")
-	ef.RegisterCompletion(rootCmd, "log", enumflag.Help[zerolog.Level]{
+	if err := ef.RegisterCompletion(rootCmd, "log", enumflag.Help[zerolog.Level]{
 		zerolog.PanicLevel: "Only log panic messages",
 		zerolog.FatalLevel: "Log fatal and panic messages",
 		zerolog.ErrorLevel: "Log error, fatal, and panic messages",
@@ -67,11 +67,17 @@ func init() {
 		zerolog.InfoLevel:  "Log info, warn, error, fatal, and panic messages",
 		zerolog.DebugLevel: "Log debug, info, warn, error, fatal, and panic messages",
 		zerolog.TraceLevel: "Log all messages including trace",
-	})
+	}); err != nil {
+		panic(fmt.Errorf("failed to register log completion: %w", err))
+	}
 
 	// Add log level environment variable support
-	viper.BindEnv("log", "LOG_LEVEL")
-	viper.BindPFlag("log", rootCmd.PersistentFlags().Lookup("log"))
+	if err := viper.BindEnv("log", "LOG_LEVEL"); err != nil {
+		panic(fmt.Errorf("failed to bind LOG_LEVEL env: %w", err))
+	}
+	if err := viper.BindPFlag("log", rootCmd.PersistentFlags().Lookup("log")); err != nil {
+		panic(fmt.Errorf("failed to bind log flag: %w", err))
+	}
 
 	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		ConfigureLogging()

@@ -188,7 +188,7 @@ func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
 		return &MockConverter{}, nil
 	}
 	cleanup := func() { converter.Get = originalGet }
-	
+
 	// Set up the command
 	cmd := &cobra.Command{
 		Use: "optimize",
@@ -198,11 +198,11 @@ func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
 	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
 	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
 	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
-	
+
 	// Reset converterType to default before test for consistency
 	converterType = constant.DefaultConversion
 	setupFormatFlag(cmd, &converterType, false)
-	
+
 	return cmd, cleanup
 }
 
@@ -219,8 +219,10 @@ func TestFormatFlagWithSpace(t *testing.T) {
 	defer cleanup()
 
 	// Test with space-separated format flag (--format webp)
-	cmd.ParseFlags([]string{"--format", "webp"})
-	
+	if err := cmd.ParseFlags([]string{"--format", "webp"}); err != nil {
+		t.Fatalf("Failed to parse flags: %v", err)
+	}
+
 	// Execute the command
 	err = ConvertCbzCommand(cmd, []string{tempDir})
 	if err != nil {
@@ -246,8 +248,10 @@ func TestFormatFlagWithShortForm(t *testing.T) {
 	defer cleanup()
 
 	// Test with short form and space (-f webp)
-	cmd.ParseFlags([]string{"-f", "webp"})
-	
+	if err := cmd.ParseFlags([]string{"-f", "webp"}); err != nil {
+		t.Fatalf("Failed to parse flags: %v", err)
+	}
+
 	// Execute the command
 	err = ConvertCbzCommand(cmd, []string{tempDir})
 	if err != nil {
@@ -273,8 +277,10 @@ func TestFormatFlagWithEquals(t *testing.T) {
 	defer cleanup()
 
 	// Test with equals syntax (--format=webp)
-	cmd.ParseFlags([]string{"--format=webp"})
-	
+	if err := cmd.ParseFlags([]string{"--format=webp"}); err != nil {
+		t.Fatalf("Failed to parse flags: %v", err)
+	}
+
 	// Execute the command
 	err = ConvertCbzCommand(cmd, []string{tempDir})
 	if err != nil {
@@ -300,8 +306,10 @@ func TestFormatFlagDefaultValue(t *testing.T) {
 	defer cleanup()
 
 	// Don't set format flag - should use default
-	cmd.ParseFlags([]string{})
-	
+	if err := cmd.ParseFlags([]string{}); err != nil {
+		t.Fatalf("Failed to parse flags: %v", err)
+	}
+
 	// Execute the command
 	err = ConvertCbzCommand(cmd, []string{tempDir})
 	if err != nil {
@@ -331,8 +339,10 @@ func TestFormatFlagCaseInsensitive(t *testing.T) {
 			defer cleanup()
 
 			// Test with different case variations
-			cmd.ParseFlags([]string{"--format", formatValue})
-			
+			if err := cmd.ParseFlags([]string{"--format", formatValue}); err != nil {
+				t.Fatalf("Failed to parse flags: %v", err)
+			}
+
 			// Execute the command
 			err = ConvertCbzCommand(cmd, []string{tempDir})
 			if err != nil {
