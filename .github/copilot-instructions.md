@@ -298,7 +298,7 @@ Releases are automated via goreleaser:
 - CBR files are always converted to CBZ format (RAR is read-only)
 - The `--override` flag deletes the original file after successful conversion
 - Page splitting is useful for double-page spreads or very tall images
-- Watch mode uses inotify on Linux for efficient file monitoring
+- Watch mode uses fsnotify-backed recursive directory monitoring on Linux
 - Bash completion is available via `cbzconverter completion bash`
 
 ## Getting Help

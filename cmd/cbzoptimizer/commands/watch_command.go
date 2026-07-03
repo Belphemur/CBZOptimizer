@@ -2,14 +2,16 @@ package commands
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 
 	utils2 "github.com/belphemur/CBZOptimizer/v2/internal/utils"
 	"github.com/belphemur/CBZOptimizer/v2/pkg/converter"
 	"github.com/belphemur/CBZOptimizer/v2/pkg/converter/constant"
-	"github.com/pablodz/inotifywaitgo/inotifywaitgo"
+	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -26,7 +28,7 @@ func init() {
 		RunE:  WatchCommand,
 		Args:  cobra.ExactArgs(1),
 	}
-	
+
 	// Setup common flags (format, quality, override, split, timeout) with viper binding
 	setupCommonFlags(command, &converterType, 85, true, false, true)
 
@@ -65,69 +67,80 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 	}
 	log.Info().Str("path", path).Bool("override", override).Uint8("quality", quality).Str("format", converterType.String()).Bool("split", split).Msg("Watching directory")
 
-	events := make(chan inotifywaitgo.FileEvent)
-	errors := make(chan error)
-	var wg sync.WaitGroup
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	defer watcher.Close()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		inotifywaitgo.WatchPath(&inotifywaitgo.Settings{
-			Dir:        path,
-			FileEvents: events,
-			ErrorChan:  errors,
-			Options: &inotifywaitgo.Options{
-				Recursive: true,
-				Events: []inotifywaitgo.EVENT{
-					inotifywaitgo.MOVE,
-					inotifywaitgo.CLOSE_WRITE,
-				},
-				Monitor: true,
-			},
-			Verbose: true,
-		})
-	}()
+	if err := addRecursiveWatch(watcher, path); err != nil {
+		return fmt.Errorf("failed to watch path %s: %w", path, err)
+	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for event := range events {
-			log.Debug().Str("file", event.Filename).Interface("events", event.Events).Msg("File event")
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return nil
+			}
+			log.Debug().Str("file", event.Name).Str("event", event.Op.String()).Msg("File event")
 
-			filename := strings.ToLower(event.Filename)
-			if !strings.HasSuffix(filename, ".cbz") && !strings.HasSuffix(filename, ".cbr") {
+			if event.Has(fsnotify.Create) {
+				fileInfo, err := os.Stat(event.Name)
+				if err == nil && fileInfo.IsDir() {
+					if err := addRecursiveWatch(watcher, event.Name); err != nil {
+						log.Error().Err(err).Str("path", event.Name).Msg("Failed to watch created directory")
+					}
+				}
+			}
+
+			if !shouldProcessWatchEvent(event) {
 				continue
 			}
 
-			for _, e := range event.Events {
-				switch e {
-				case inotifywaitgo.CLOSE_WRITE, inotifywaitgo.MOVE:
-					err := utils2.Optimize(&utils2.OptimizeOptions{
-						ChapterConverter: chapterConverter,
-						Path:             event.Filename,
-						Quality:          quality,
-						Override:         override,
-						Split:            split,
-						Timeout:          timeout,
-					})
-					if err != nil {
-						errors <- fmt.Errorf("error processing file %s: %w", event.Filename, err)
-					}
-				default:
-					// ignored
-				}
+			if !isComicArchive(event.Name) {
+				continue
 			}
-		}
-	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for err := range errors {
+			if err := utils2.Optimize(&utils2.OptimizeOptions{
+				ChapterConverter: chapterConverter,
+				Path:             event.Name,
+				Quality:          quality,
+				Override:         override,
+				Split:            split,
+				Timeout:          timeout,
+			}); err != nil {
+				log.Error().Err(err).Str("file", event.Name).Msg("Error processing file")
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil
+			}
 			log.Error().Err(err).Msg("Watch error")
 		}
-	}()
+	}
+}
 
-	wg.Wait()
-	return nil
+func addRecursiveWatch(watcher *fsnotify.Watcher, rootPath string) error {
+	return filepath.WalkDir(rootPath, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if err := watcher.Add(path); err != nil {
+			return fmt.Errorf("failed to watch directory %s: %w", path, err)
+		}
+		return nil
+	})
+}
+
+func shouldProcessWatchEvent(event fsnotify.Event) bool {
+	return event.Has(fsnotify.Create) || event.Has(fsnotify.Write) || event.Has(fsnotify.Rename)
+}
+
+func isComicArchive(path string) bool {
+	filename := strings.ToLower(path)
+	return strings.HasSuffix(filename, ".cbz") || strings.HasSuffix(filename, ".cbr")
 }
