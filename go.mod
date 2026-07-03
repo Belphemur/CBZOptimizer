@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/belphemur/go-webpbin/v2 v2.1.0
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mholt/archives v0.1.5
 	github.com/oliamb/cutter v0.2.2
 	github.com/rs/zerolog v1.35.1
