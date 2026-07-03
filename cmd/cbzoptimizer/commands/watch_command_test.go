@@ -181,11 +181,11 @@ func TestWatchCommandBackfillFlagDefaultsToFalse(t *testing.T) {
 	assert.Equal(t, "bool", flag.Value.Type())
 }
 
-func TestBackfillExistingArchivesOnlyInvokedWhenRequested(t *testing.T) {
+func TestMaybeBackfillExistingArchivesOnlyInvokedWhenRequested(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "chapter1.cbz"), []byte("data"), 0o644))
 
-	runBackfill := func(backfill bool) []string {
+	runBackfill := func(enabled bool) []string {
 		var found []string
 		var mu sync.Mutex
 		process := func(path string) {
@@ -193,11 +193,9 @@ func TestBackfillExistingArchivesOnlyInvokedWhenRequested(t *testing.T) {
 			defer mu.Unlock()
 			found = append(found, path)
 		}
-		// Mirrors the gating logic in WatchCommand: backfillExistingArchives
-		// must only run when the --backfill flag is set.
-		if backfill {
-			backfillExistingArchives(root, process)
-		}
+		// This is the exact same gating call WatchCommand makes based on the
+		// --backfill flag value.
+		maybeBackfillExistingArchives(enabled, root, process)
 		return found
 	}
 

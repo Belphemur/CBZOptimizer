@@ -115,9 +115,7 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 	if err := addRecursiveWatch(watcher, path); err != nil {
 		return fmt.Errorf("failed to watch path %s: %w", path, err)
 	}
-	if backfill {
-		backfillExistingArchives(path, debouncer.Trigger)
-	}
+	maybeBackfillExistingArchives(backfill, path, debouncer.Trigger)
 
 	for {
 		select {
@@ -206,6 +204,17 @@ func backfillExistingArchives(rootPath string, process func(path string)) {
 	if err != nil {
 		log.Error().Err(err).Str("path", rootPath).Msg("Failed to scan directory for existing archives")
 	}
+}
+
+// maybeBackfillExistingArchives runs backfillExistingArchives against
+// rootPath only when enabled is true. It exists as its own function (rather
+// than inlining the `if` check at the call site) so the gating decision used
+// by WatchCommand can be exercised directly in tests.
+func maybeBackfillExistingArchives(enabled bool, rootPath string, process func(path string)) {
+	if !enabled {
+		return
+	}
+	backfillExistingArchives(rootPath, process)
 }
 
 func shouldProcessWatchEvent(event fsnotify.Event) bool {
