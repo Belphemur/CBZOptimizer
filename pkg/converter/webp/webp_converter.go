@@ -9,6 +9,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,15 @@ type Converter struct {
 	maxHeight  int
 	cropHeight int
 	isPrepared bool
+	// pageWorkerGuard limits how many pages are converted (i.e. how many
+	// cwebp binary processes are spawned) concurrently across the whole
+	// application, regardless of how many chapters are being processed in
+	// parallel (see the --parallelism flag). Without this shared limit, the
+	// per-chapter worker pool (sized to runtime.NumCPU()) would be
+	// multiplied by the number of chapters processed concurrently, leading
+	// to CPU/memory oversubscription since every page conversion spawns an
+	// external cwebp process.
+	pageWorkerGuard chan struct{}
 }
 
 func (converter *Converter) Format() (format constant.ConversionFormat) {
@@ -37,9 +47,10 @@ func (converter *Converter) Format() (format constant.ConversionFormat) {
 func New() *Converter {
 	return &Converter{
 		//maxHeight: 16383 / 2,
-		maxHeight:  4000,
-		cropHeight: 2000,
-		isPrepared: false,
+		maxHeight:       4000,
+		cropHeight:      2000,
+		isPrepared:      false,
+		pageWorkerGuard: make(chan struct{}, runtime.NumCPU()),
 	}
 }
 
@@ -70,6 +81,18 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		return nil, err
 	}
 
+	// Stage converted pages on disk in a temp folder instead of keeping them
+	// all in memory until the whole chapter is written out. This bounds
+	// memory usage for chapters with many/large pages; the caller is
+	// responsible for calling chapter.Cleanup() once the chapter has been
+	// written to its final CBZ file.
+	tempDir, err := os.MkdirTemp("", "cbzoptimizer-*")
+	if err != nil {
+		log.Error().Str("chapter", chapter.FilePath).Err(err).Msg("Failed to create staging temp folder")
+		return nil, fmt.Errorf("failed to create staging temp folder: %w", err)
+	}
+	chapter.TempDir = tempDir
+
 	var wgConvertedPages sync.WaitGroup
 	maxGoroutines := runtime.NumCPU()
 
@@ -80,7 +103,12 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 	var wgPages sync.WaitGroup
 	wgPages.Add(len(chapter.Pages))
 
-	guard := make(chan struct{}, maxGoroutines)
+	// guard is shared across all chapters processed concurrently by this
+	// converter instance (see pageWorkerGuard doc comment) so that the total
+	// number of concurrently running cwebp processes stays bounded to
+	// runtime.NumCPU(), no matter how many chapters are being converted in
+	// parallel at the same time.
+	guard := converter.pageWorkerGuard
 	pagesMutex := sync.Mutex{}
 	var pages []*manga.Page
 	var totalPages = uint32(len(chapter.Pages))
@@ -89,13 +117,24 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		Str("chapter", chapter.FilePath).
 		Int("total_pages", len(chapter.Pages)).
 		Int("worker_count", maxGoroutines).
+		Str("staging_dir", tempDir).
 		Msg("Initialized conversion worker pool")
+
+	// failWithCleanup removes the staging temp folder before returning a
+	// fatal error for which no chapter is returned to the caller (and thus
+	// nobody else will clean it up).
+	failWithCleanup := func(err error) (*manga.Chapter, error) {
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			log.Warn().Str("chapter", chapter.FilePath).Err(removeErr).Msg("Failed to remove staging temp folder after error")
+		}
+		return nil, err
+	}
 
 	// Check if context is already cancelled
 	select {
 	case <-ctx.Done():
 		log.Warn().Str("chapter", chapter.FilePath).Msg("Chapter conversion cancelled due to timeout")
-		return nil, ctx.Err()
+		return failWithCleanup(ctx.Err())
 	default:
 	}
 
@@ -122,7 +161,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 				default:
 				}
 
-				convertedPage, err := converter.convertPage(pageToConvert, quality)
+				convertedPage, err := converter.convertPage(pageToConvert, quality, tempDir)
 				if err != nil {
 					if convertedPage == nil {
 						select {
@@ -142,9 +181,14 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 						}
 						return
 					}
-					convertedPage.Page.Contents = buffer
-					convertedPage.Page.Extension = ".png"
-					convertedPage.Page.Size = uint64(buffer.Len())
+					if err := convertedPage.Page.Stage(tempDir, buffer, ".png"); err != nil {
+						select {
+						case errChan <- err:
+						case <-ctx.Done():
+							return
+						}
+						return
+					}
 				}
 				pagesMutex.Lock()
 				defer pagesMutex.Unlock()
@@ -160,7 +204,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		select {
 		case <-ctx.Done():
 			log.Warn().Str("chapter", chapter.FilePath).Msg("Chapter conversion cancelled due to timeout")
-			return nil, ctx.Err()
+			return failWithCleanup(ctx.Err())
 		default:
 		}
 
@@ -251,11 +295,13 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		// Conversion completed successfully
 	case <-ctx.Done():
 		log.Warn().Str("chapter", chapter.FilePath).Msg("Chapter conversion cancelled due to timeout")
-		return nil, ctx.Err()
+		return failWithCleanup(ctx.Err())
 	}
 
 	close(errChan)
-	close(guard)
+	// Note: guard is the converter's shared pageWorkerGuard and must not be
+	// closed here since it is reused by subsequent (and possibly concurrent)
+	// ConvertChapter calls.
 
 	var errList []error
 	for err := range errChan {
@@ -402,7 +448,7 @@ func (converter *Converter) checkPageNeedsSplit(page *manga.Page, splitRequested
 	return needsSplit, img, format, nil
 }
 
-func (converter *Converter) convertPage(container *manga.PageContainer, quality uint8) (*manga.PageContainer, error) {
+func (converter *Converter) convertPage(container *manga.PageContainer, quality uint8, tempDir string) (*manga.PageContainer, error) {
 	log.Debug().
 		Uint16("page_index", container.Page.Index).
 		Str("format", container.Format).
@@ -439,12 +485,22 @@ func (converter *Converter) convertPage(container *manga.PageContainer, quality 
 		return nil, err
 	}
 
-	container.SetConverted(converted, ".webp")
+	originalSize := container.Page.Size
+	convertedSize := converted.Len()
+
+	if err := container.Page.Stage(tempDir, converted, ".webp"); err != nil {
+		log.Error().
+			Uint16("page_index", container.Page.Index).
+			Err(err).
+			Msg("Failed to stage converted page to disk")
+		return nil, err
+	}
+	container.HasBeenConverted = true
 
 	log.Debug().
 		Uint16("page_index", container.Page.Index).
-		Int("original_size", len(container.Page.Contents.Bytes())).
-		Int("converted_size", len(converted.Bytes())).
+		Uint64("original_size", originalSize).
+		Int("converted_size", convertedSize).
 		Msg("Page conversion completed")
 
 	return container, nil

@@ -95,6 +95,15 @@ go test -v ./pkg/converter/...
 go test -v ./internal/utils/...
 ```
 
+A large-file integration test (`TestOptimizeIntegration_LargeFile`) exercises the
+optimize pipeline against a ~1GB CBZ fixture stored via Git LFS
+(`testdata/large/large_chapter.cbz`, tracked in `.gitattributes`). It is skipped
+by default; fetch the fixture with `git lfs pull` and opt in with:
+
+```bash
+CBZ_RUN_LARGE_FILE_TEST=1 go test -v ./internal/utils/... -run TestOptimizeIntegration_LargeFile
+```
+
 ### Linting
 
 ```bash
@@ -281,8 +290,9 @@ Releases are automated via goreleaser:
 
 ## Performance Considerations
 
-- **Parallelism:** Use `--parallelism` flag to control concurrent chapter processing
-- **Memory:** Large images are processed in-memory; consider system RAM when setting parallelism
+- **Parallelism:** Use `--parallelism` flag to control concurrent chapter processing. Regardless of this value, the total number of pages converted at the same time (i.e. concurrent `cwebp` processes) is capped process-wide to the number of CPU cores, so raising parallelism spreads that budget across more chapters instead of multiplying resource usage.
+- **Memory:** Original page images are loaded in memory, but converted pages are staged to a temporary folder on disk as soon as they're produced (see `manga.Page.TempFilePath` / `manga.Chapter.TempDir`) instead of being held in memory until the whole chapter is written out. The staging folder is cleaned up once the chapter has been written to its final CBZ file.
+- **Disk:** Since converted pages are staged on disk, ensure enough free space (roughly the size of the converted chapter) is available in the OS temp directory.
 - **Timeouts:** Use `--timeout` flag to prevent hanging on problematic files
 - **WebP Quality:** Balance quality (0-100) vs file size; default is 85
 

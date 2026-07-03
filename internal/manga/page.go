@@ -1,6 +1,11 @@
 package manga
 
-import "bytes"
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"os"
+)
 
 type Page struct {
 	// Index of the page in the chapter.
@@ -9,10 +14,58 @@ type Page struct {
 	Extension string `json:"extension" jsonschema:"description=Extension of the page image."`
 	// Size of the page in bytes
 	Size uint64 `json:"-"`
-	// Contents of the page
+	// Contents of the page. Nil when the page contents have been staged to
+	// disk (see TempFilePath) to bound memory usage.
 	Contents *bytes.Buffer `json:"-"`
+	// TempFilePath, when non-empty, points to a file on disk (in a staging
+	// temp folder) holding the page contents instead of keeping them fully
+	// in memory. Use Open() to transparently read the page contents
+	// regardless of where they are stored.
+	TempFilePath string `json:"-"`
 	// IsSplitted tell us if the page was cropped to multiple pieces
 	IsSplitted bool `json:"is_cropped" jsonschema:"description=Was this page cropped."`
 	// SplitPartIndex represent the index of the crop if the page was cropped
 	SplitPartIndex uint16 `json:"crop_part_index" jsonschema:"description=Index of the crop if the image was cropped."`
+}
+
+// Open returns a reader for the page contents, transparently handling
+// whether the contents are held in memory (Contents) or staged on disk
+// (TempFilePath). The caller is responsible for closing the returned
+// reader.
+func (page *Page) Open() (io.ReadCloser, error) {
+	if page.TempFilePath != "" {
+		file, err := os.Open(page.TempFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open staged page contents: %w", err)
+		}
+		return file, nil
+	}
+	if page.Contents == nil {
+		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+	return io.NopCloser(bytes.NewReader(page.Contents.Bytes())), nil
+}
+
+// Stage writes the given content to a file in tempDir instead of keeping it
+// in memory, updating Extension, Size and TempFilePath accordingly and
+// clearing Contents. This is used after converting a page so that only the
+// pages currently being processed are held in memory, bounding memory usage
+// for chapters with many/large pages.
+func (page *Page) Stage(tempDir string, content *bytes.Buffer, extension string) error {
+	file, err := os.CreateTemp(tempDir, "page-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create staging file: %w", err)
+	}
+	defer file.Close()
+
+	written, err := file.Write(content.Bytes())
+	if err != nil {
+		return fmt.Errorf("failed to write staging file: %w", err)
+	}
+
+	page.TempFilePath = file.Name()
+	page.Extension = extension
+	page.Size = uint64(written)
+	page.Contents = nil
+	return nil
 }
