@@ -25,10 +25,6 @@ import (
 // written (e.g. copied or downloaded into the watched folder).
 const debounceDelay = 2 * time.Second
 
-// watchWorkerCount controls how many optimization jobs can run concurrently
-// so the fsnotify event loop is never blocked waiting on a conversion.
-var watchWorkerCount = runtime.NumCPU()
-
 func init() {
 	if runtime.GOOS != "linux" {
 		return
@@ -89,7 +85,9 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 		}
 	}()
 
-	queue := newOptimizeQueue(watchWorkerCount, &utils2.OptimizeOptions{
+	// Optimization jobs run in a small worker pool so the fsnotify event loop
+	// is never blocked waiting on a conversion.
+	queue := newOptimizeQueue(runtime.NumCPU(), &utils2.OptimizeOptions{
 		ChapterConverter: chapterConverter,
 		Quality:          quality,
 		Override:         override,
@@ -228,17 +226,27 @@ func (d *eventDebouncer) Trigger(path string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if timer, exists := d.timers[path]; exists {
-		timer.Reset(d.delay)
-		return
+	if existing, exists := d.timers[path]; exists {
+		existing.Stop()
 	}
 
-	d.timers[path] = time.AfterFunc(d.delay, func() {
+	var timer *time.Timer
+	timer = time.AfterFunc(d.delay, func() {
 		d.mu.Lock()
-		delete(d.timers, path)
+		// Only the still-current timer for this path is allowed to clear the
+		// entry and fire onQuiet. If Trigger raced with this callback and
+		// already installed a newer timer, this stale invocation must not
+		// delete that newer entry or fire early.
+		owns := d.timers[path] == timer
+		if owns {
+			delete(d.timers, path)
+		}
 		d.mu.Unlock()
-		d.onQuiet(path)
+		if owns {
+			d.onQuiet(path)
+		}
 	})
+	d.timers[path] = timer
 }
 
 // Stop cancels all pending timers.
