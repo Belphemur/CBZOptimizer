@@ -123,6 +123,15 @@ golangci-lint run
 - **Error handling:** Always check errors explicitly; use structured error wrapping with `fmt.Errorf("context: %w", err)`
 - **Context usage:** Pass `context.Context` as first parameter for operations that may be cancelled
 
+### Commit Messages
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org/). Prefix commit messages with a type (and optional scope), for example:
+
+- `fix(watch): debounce fsnotify events before optimizing`
+- `feat(converter): add avif support`
+- `docs: clarify commit convention`
+- `chore: update dependency`
+
 ### Logging
 
 Use **zerolog** for all logging:
