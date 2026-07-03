@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,14 +63,9 @@ func TestOptimizeIntegration_LargeFile(t *testing.T) {
 	}
 
 	cbzFile := filepath.Join(tempDir, "large_chapter.cbz")
-	data, err := os.ReadFile(largeTestFile)
-	if err != nil {
+	if err := copyFile(largeTestFile, cbzFile); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cbzFile, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	data = nil // release before conversion so the baseline memory reading below is meaningful
 
 	var memBefore, memAfter runtime.MemStats
 	runtime.GC()
@@ -99,4 +96,26 @@ func TestOptimizeIntegration_LargeFile(t *testing.T) {
 	if _, err := os.Stat(outputFile); err != nil {
 		t.Fatalf("expected converted output file %s to exist: %v", outputFile, err)
 	}
+}
+
+// copyFile copies src to dst using streaming file I/O so that the whole
+// file content is never held in memory at once, which matters for the
+// large fixture used by this test.
+func copyFile(src, dst string) (err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer errs.Capture(&err, in.Close, "failed to close source file")
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer errs.Capture(&err, out.Close, "failed to close destination file")
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+	return nil
 }

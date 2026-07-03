@@ -41,7 +41,7 @@ func (page *Page) Open() (io.ReadCloser, error) {
 		return file, nil
 	}
 	if page.Contents == nil {
-		return io.NopCloser(bytes.NewReader(nil)), nil
+		return nil, fmt.Errorf("page has no contents: neither TempFilePath nor Contents is set")
 	}
 	return io.NopCloser(bytes.NewReader(page.Contents.Bytes())), nil
 }
@@ -56,11 +56,17 @@ func (page *Page) Stage(tempDir string, content *bytes.Buffer, extension string)
 	if err != nil {
 		return fmt.Errorf("failed to create staging file: %w", err)
 	}
-	defer file.Close()
 
-	written, err := file.Write(content.Bytes())
-	if err != nil {
-		return fmt.Errorf("failed to write staging file: %w", err)
+	written, writeErr := file.Write(content.Bytes())
+	closeErr := file.Close()
+	if writeErr != nil {
+		return fmt.Errorf("failed to write staging file: %w", writeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("failed to close staging file: %w", closeErr)
+	}
+	if written != content.Len() {
+		return fmt.Errorf("short write to staging file: wrote %d of %d bytes", written, content.Len())
 	}
 
 	page.TempFilePath = file.Name()

@@ -127,6 +127,7 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
 			log.Warn().Str("chapter", chapter.FilePath).Err(removeErr).Msg("Failed to remove staging temp folder after error")
 		}
+		chapter.TempDir = ""
 		return nil, err
 	}
 
