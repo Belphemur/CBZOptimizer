@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestIsValidFolder(t *testing.T) {
@@ -51,9 +53,7 @@ func TestIsValidFolder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			path := tt.setup(t)
 			result := IsValidFolder(path)
-			if result != tt.expected {
-				t.Errorf("IsValidFolder(%q) = %v, want %v", path, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

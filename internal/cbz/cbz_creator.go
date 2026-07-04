@@ -14,7 +14,7 @@ import (
 
 // WriteChapterToCBZ creates a CBZ file from a Chapter by streaming page files
 // from disk directly into the zip archive. No image data is held in memory.
-func WriteChapterToCBZ(chapter *manga.Chapter, outputFilePath string) error {
+func WriteChapterToCBZ(chapter *manga.Chapter, outputFilePath string) (err error) {
 	log.Debug().
 		Str("chapter_file", chapter.FilePath).
 		Str("output_path", outputFilePath).

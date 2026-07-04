@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/araddon/dateparse"
 	"github.com/belphemur/CBZOptimizer/v2/internal/manga"
@@ -18,10 +19,52 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// supportedImageExtensions contains file extensions considered valid image pages.
+var supportedImageExtensions = map[string]bool{
+	".jpg":  true,
+	".jpeg": true,
+	".png":  true,
+	".gif":  true,
+	".webp": true,
+	".bmp":  true,
+	".tiff": true,
+	".tif":  true,
+}
+
+// parseConvertedComment checks if a zip comment's first line is a parseable date,
+// indicating the archive was already converted. Returns true and the parsed time if so.
+func parseConvertedComment(comment string) bool {
+	if comment == "" {
+		return false
+	}
+	scanner := bufio.NewScanner(strings.NewReader(comment))
+	if scanner.Scan() {
+		_, err := dateparse.ParseAny(scanner.Text())
+		return err == nil
+	}
+	return false
+}
+
+// parseConvertedCommentTime parses the converted timestamp from a zip comment.
+// Returns the time and true if the comment indicates conversion, otherwise zero time and false.
+func parseConvertedCommentTime(comment string) (time.Time, bool) {
+	if comment == "" {
+		return time.Time{}, false
+	}
+	scanner := bufio.NewScanner(strings.NewReader(comment))
+	if scanner.Scan() {
+		t, err := dateparse.ParseAny(scanner.Text())
+		if err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // IsAlreadyConverted performs a fast check to see if the archive is already
 // converted without extracting any image data. It reads only the zip comment
 // and metadata files (converted.txt) to determine conversion status.
-func IsAlreadyConverted(filePath string) (bool, error) {
+func IsAlreadyConverted(ctx context.Context, filePath string) (converted bool, err error) {
 	log.Debug().Str("file_path", filePath).Msg("Checking if already converted")
 
 	pathLower := strings.ToLower(filepath.Ext(filePath))
@@ -34,15 +77,9 @@ func IsAlreadyConverted(filePath string) (bool, error) {
 		defer errs.Capture(&err, r.Close, "failed to close zip reader")
 
 		// Check zip comment
-		if r.Comment != "" {
-			scanner := bufio.NewScanner(strings.NewReader(r.Comment))
-			if scanner.Scan() {
-				_, err := dateparse.ParseAny(scanner.Text())
-				if err == nil {
-					log.Debug().Str("file_path", filePath).Msg("Already converted (zip comment)")
-					return true, nil
-				}
-			}
+		if parseConvertedComment(r.Comment) {
+			log.Debug().Str("file_path", filePath).Msg("Already converted (zip comment)")
+			return true, nil
 		}
 
 		// Check for converted.txt inside the archive
@@ -69,7 +106,6 @@ func IsAlreadyConverted(filePath string) (bool, error) {
 
 	// For CBR files, we need to use the archives library to check
 	if pathLower == ".cbr" {
-		ctx := context.Background()
 		fsys, err := archives.FileSystem(ctx, filePath, nil)
 		if err != nil {
 			return false, fmt.Errorf("failed to open archive: %w", err)
@@ -106,7 +142,7 @@ func IsAlreadyConverted(filePath string) (bool, error) {
 // ExtractChapter extracts an archive (CBZ/CBR) to a temp directory on disk.
 // Pages are streamed directly to files — no image data is held in memory.
 // Returns a Chapter with PageFile entries pointing to extracted files.
-func ExtractChapter(filePath string) (*manga.Chapter, error) {
+func ExtractChapter(ctx context.Context, filePath string) (*manga.Chapter, error) {
 	log.Debug().Str("file_path", filePath).Msg("Extracting chapter to disk")
 
 	// Create temp directory for extraction
@@ -131,38 +167,44 @@ func ExtractChapter(filePath string) (*manga.Chapter, error) {
 	if pathLower == ".cbz" {
 		r, err := zip.OpenReader(filePath)
 		if err == nil {
-			if r.Comment != "" {
-				scanner := bufio.NewScanner(strings.NewReader(r.Comment))
-				if scanner.Scan() {
-					t, err := dateparse.ParseAny(scanner.Text())
-					if err == nil {
-						chapter.IsConverted = true
-						chapter.ConvertedTime = t
-					}
-				}
+			if t, ok := parseConvertedCommentTime(r.Comment); ok {
+				chapter.IsConverted = true
+				chapter.ConvertedTime = t
 			}
 			_ = r.Close()
 		}
 	}
 
 	// Extract files using the archives library (supports both CBZ and CBR)
-	ctx := context.Background()
 	fsys, err := archives.FileSystem(ctx, filePath, nil)
 	if err != nil {
 		_ = os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to open archive: %w", err)
 	}
 
-	err = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	err = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 		if d.IsDir() {
 			return nil
 		}
 
+		// Check for context cancellation during extraction
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		ext := strings.ToLower(filepath.Ext(path))
 		fileName := strings.ToLower(filepath.Base(path))
+
+		// Skip OS-specific metadata files and junk
+		if isJunkFile(path) {
+			log.Debug().Str("file_path", filePath).Str("skipped", path).Msg("Skipping junk file")
+			return nil
+		}
 
 		// Handle ComicInfo.xml
 		if ext == ".xml" && fileName == "comicinfo.xml" {
@@ -195,6 +237,12 @@ func ExtractChapter(filePath string) (*manga.Chapter, error) {
 					chapter.ConvertedTime = t
 				}
 			}
+			return nil
+		}
+
+		// Only extract supported image files
+		if !supportedImageExtensions[ext] {
+			log.Debug().Str("file_path", filePath).Str("skipped", path).Str("ext", ext).Msg("Skipping non-image file")
 			return nil
 		}
 
@@ -256,9 +304,24 @@ func ExtractChapter(filePath string) (*manga.Chapter, error) {
 	return chapter, nil
 }
 
-// LoadChapter is a convenience function that checks conversion status and
-// extracts the chapter. It returns early if already converted (without
-// extracting all pages).
+// isJunkFile returns true for known OS/tool metadata files that should not be
+// treated as pages (e.g., __MACOSX/, Thumbs.db, .DS_Store).
+func isJunkFile(path string) bool {
+	// __MACOSX resource fork directories
+	if strings.Contains(path, "__MACOSX") {
+		return true
+	}
+	baseLower := strings.ToLower(filepath.Base(path))
+	switch baseLower {
+	case "thumbs.db", ".ds_store", "desktop.ini":
+		return true
+	}
+	return false
+}
+
+// LoadChapter extracts the chapter from a CBZ/CBR file to disk.
+// It delegates to ExtractChapter and always extracts all pages.
+// Use IsAlreadyConverted for a fast conversion status check without extraction.
 func LoadChapter(filePath string) (*manga.Chapter, error) {
-	return ExtractChapter(filePath)
+	return ExtractChapter(context.Background(), filePath)
 }

@@ -74,6 +74,11 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		return nil, err
 	}
 
+	// Validate TempDir is set to prevent writing to cwd
+	if chapter.TempDir == "" {
+		return nil, fmt.Errorf("chapter TempDir is empty, cannot create output directory")
+	}
+
 	// Create output directory for converted files
 	outputDir := filepath.Join(chapter.TempDir, "output")
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -147,25 +152,36 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 		return nil, ctx.Err()
 	}
 
-	// Collect results
+	// Collect results — separate fatal errors from page-ignored errors
 	var convertedPages []*manga.PageFile
-	var errList []error
+	var fatalErrors []error
+	var ignoredErrors []error
 
 	for _, result := range results {
 		if result.err != nil {
 			if errors.Is(result.err, context.DeadlineExceeded) || errors.Is(result.err, context.Canceled) {
 				return nil, result.err
 			}
-			errList = append(errList, result.err)
+			var pageIgnored *converterrors.PageIgnoredError
+			if errors.As(result.err, &pageIgnored) {
+				ignoredErrors = append(ignoredErrors, result.err)
+			} else {
+				fatalErrors = append(fatalErrors, result.err)
+			}
 		}
 		if result.pages != nil {
 			convertedPages = append(convertedPages, result.pages...)
 		}
 	}
 
+	// Fatal errors take priority over ignored-page errors
+	if len(fatalErrors) > 0 {
+		return nil, errors.Join(fatalErrors...)
+	}
+
 	if len(convertedPages) == 0 {
-		if len(errList) > 0 {
-			return nil, errors.Join(errList...)
+		if len(ignoredErrors) > 0 {
+			return nil, errors.Join(ignoredErrors...)
 		}
 		return nil, fmt.Errorf("no pages were converted")
 	}
@@ -182,8 +198,8 @@ func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.C
 	chapter.Pages = convertedPages
 
 	var aggregatedError error
-	if len(errList) > 0 {
-		aggregatedError = errors.Join(errList...)
+	if len(ignoredErrors) > 0 {
+		aggregatedError = errors.Join(ignoredErrors...)
 	}
 
 	log.Debug().
