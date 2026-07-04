@@ -2,8 +2,6 @@ package webp
 
 import (
 	"fmt"
-	"image"
-	"io"
 	"strings"
 	"sync"
 
@@ -37,10 +35,23 @@ func PrepareEncoder() error {
 	return nil
 }
 
-func Encode(w io.Writer, m image.Image, quality uint) error {
+// EncodeFile converts an image file directly to WebP using cwebp.
+// This is a zero-copy operation: no image data is loaded into Go memory.
+func EncodeFile(inputPath string, outputPath string, quality uint) error {
 	return webpbin.NewCWebP(config).
 		Quality(quality).
-		InputImage(m).
-		Output(w).
+		InputFile(inputPath).
+		OutputFile(outputPath).
+		Run()
+}
+
+// EncodeFileWithCrop converts a cropped region of an image file to WebP.
+// Uses cwebp's native -crop flag — no Go-side image decode needed.
+func EncodeFileWithCrop(inputPath string, outputPath string, quality uint, x, y, width, height int) error {
+	return webpbin.NewCWebP(config).
+		Quality(quality).
+		Crop(x, y, width, height).
+		InputFile(inputPath).
+		OutputFile(outputPath).
 		Run()
 }

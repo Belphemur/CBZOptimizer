@@ -25,6 +25,12 @@ type OptimizeOptions struct {
 }
 
 // Optimize optimizes a CBZ/CBR file using the specified converter.
+// The new pipeline is disk-first:
+// 1. Fast check if already converted (no extraction)
+// 2. Extract archive to temp directory on disk
+// 3. Convert pages file-to-file (no image data in memory)
+// 4. Create output CBZ by streaming from disk
+// 5. Cleanup temp files
 func Optimize(options *OptimizeOptions) error {
 	log.Info().Str("file", options.Path).Msg("Processing file")
 	log.Debug().
@@ -34,43 +40,54 @@ func Optimize(options *OptimizeOptions) error {
 		Bool("split", options.Split).
 		Msg("Optimization parameters")
 
-	// Load the chapter
-	log.Debug().Str("file", options.Path).Msg("Loading chapter")
-	chapter, err := cbz.LoadChapter(options.Path)
+	// Step 1: Fast conversion check before extracting (new requirement)
+	alreadyConverted, err := cbz.IsAlreadyConverted(context.Background(), options.Path)
 	if err != nil {
-		log.Error().Str("file", options.Path).Err(err).Msg("Failed to load chapter")
-		return fmt.Errorf("failed to load chapter: %v", err)
+		log.Debug().Str("file", options.Path).Err(err).Msg("Conversion check failed, proceeding with extraction")
 	}
-	log.Debug().
-		Str("file", options.Path).
-		Int("pages", len(chapter.Pages)).
-		Bool("converted", chapter.IsConverted).
-		Msg("Chapter loaded successfully")
+	if alreadyConverted {
+		log.Info().Str("file", options.Path).Msg("Chapter already converted")
+		return nil
+	}
 
+	// Step 2: Extract chapter to disk
+	log.Debug().Str("file", options.Path).Msg("Extracting chapter")
+
+	// Create context for extraction (use timeout if configured)
+	var extractCtx context.Context
+	if options.Timeout > 0 {
+		var cancel context.CancelFunc
+		extractCtx, cancel = context.WithTimeout(context.Background(), options.Timeout)
+		defer cancel()
+		log.Debug().Str("file", options.Path).Dur("timeout", options.Timeout).Msg("Applying timeout")
+	} else {
+		extractCtx = context.Background()
+	}
+
+	chapter, err := cbz.ExtractChapter(extractCtx, options.Path)
+	if err != nil {
+		log.Error().Str("file", options.Path).Err(err).Msg("Failed to extract chapter")
+		return fmt.Errorf("failed to extract chapter: %w", err)
+	}
+	defer func() {
+		if cleanupErr := chapter.Cleanup(); cleanupErr != nil {
+			log.Warn().Str("file", options.Path).Err(cleanupErr).Msg("Failed to cleanup temp directory")
+		}
+	}()
+
+	// Double-check conversion status from extracted metadata
 	if chapter.IsConverted {
 		log.Info().Str("file", options.Path).Msg("Chapter already converted")
 		return nil
 	}
 
-	// Convert the chapter
 	log.Debug().
-		Str("file", chapter.FilePath).
+		Str("file", options.Path).
 		Int("pages", len(chapter.Pages)).
-		Uint8("quality", options.Quality).
-		Bool("split", options.Split).
-		Msg("Starting chapter conversion")
+		Msg("Chapter extracted successfully")
 
-	var ctx context.Context
-	if options.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), options.Timeout)
-		defer cancel()
-		log.Debug().Str("file", chapter.FilePath).Dur("timeout", options.Timeout).Msg("Applying timeout to chapter conversion")
-	} else {
-		ctx = context.Background()
-	}
-
-	convertedChapter, err := options.ChapterConverter.ConvertChapter(ctx, chapter, options.Quality, options.Split, func(msg string, current uint32, total uint32) {
+	// Step 3: Convert pages file-to-file
+	convertedChapter, err := options.ChapterConverter.ConvertChapter(extractCtx, chapter, options.Quality, options.Split, func(msg string, current uint32, total uint32) {
 		if current%10 == 0 || current == total {
 			log.Info().Str("file", chapter.FilePath).Uint32("current", current).Uint32("total", total).Msg("Converting")
 		} else {
@@ -83,7 +100,7 @@ func Optimize(options *OptimizeOptions) error {
 			log.Debug().Str("file", chapter.FilePath).Err(err).Msg("Page conversion error (non-fatal)")
 		} else {
 			log.Error().Str("file", chapter.FilePath).Err(err).Msg("Chapter conversion failed")
-			return fmt.Errorf("failed to convert chapter: %v", err)
+			return fmt.Errorf("failed to convert chapter: %w", err)
 		}
 	}
 	if convertedChapter == nil {
@@ -91,82 +108,47 @@ func Optimize(options *OptimizeOptions) error {
 		return fmt.Errorf("failed to convert chapter")
 	}
 
-	// Clean up the staging temp folder (if any) used to hold converted page
-	// contents on disk once we're done with the chapter, regardless of
-	// success or failure below.
-	defer func() {
-		if cleanupErr := convertedChapter.Cleanup(); cleanupErr != nil {
-			log.Warn().Str("file", chapter.FilePath).Err(cleanupErr).Msg("Failed to remove staging temp folder")
-		}
-	}()
-
 	log.Debug().
 		Str("file", chapter.FilePath).
-		Int("original_pages", len(chapter.Pages)).
 		Int("converted_pages", len(convertedChapter.Pages)).
 		Msg("Chapter conversion completed")
 
 	convertedChapter.SetConverted()
 
-	// Determine output path and handle CBR override logic
-	log.Debug().
-		Str("input_path", options.Path).
-		Bool("override", options.Override).
-		Msg("Determining output path")
-
+	// Step 4: Determine output path
 	outputPath := options.Path
 	originalPath := options.Path
 	isCbrOverride := false
 
 	if options.Override {
-		// For override mode, check if it's a CBR file that needs to be converted to CBZ
 		pathLower := strings.ToLower(options.Path)
 		if strings.HasSuffix(pathLower, ".cbr") {
-			// Convert CBR to CBZ: change extension and mark for deletion
 			outputPath = strings.TrimSuffix(options.Path, filepath.Ext(options.Path)) + ".cbz"
 			isCbrOverride = true
-			log.Debug().
-				Str("original_path", originalPath).
-				Str("output_path", outputPath).
-				Msg("CBR to CBZ conversion: will delete original after conversion")
-		} else {
-			log.Debug().
-				Str("original_path", originalPath).
-				Str("output_path", outputPath).
-				Msg("CBZ override mode: will overwrite original file")
 		}
 	} else {
-		// Handle both .cbz and .cbr files - strip the extension and add _converted.cbz
 		pathLower := strings.ToLower(options.Path)
 		if strings.HasSuffix(pathLower, ".cbz") {
 			outputPath = strings.TrimSuffix(options.Path, ".cbz") + "_converted.cbz"
 		} else if strings.HasSuffix(pathLower, ".cbr") {
 			outputPath = strings.TrimSuffix(options.Path, ".cbr") + "_converted.cbz"
 		} else {
-			// Fallback for other extensions - just add _converted.cbz
 			outputPath = options.Path + "_converted.cbz"
 		}
-		log.Debug().
-			Str("original_path", originalPath).
-			Str("output_path", outputPath).
-			Msg("Non-override mode: creating converted file alongside original")
 	}
 
-	// Write the converted chapter to CBZ file
+	// Step 5: Write converted chapter to CBZ (streaming from disk)
 	log.Debug().Str("output_path", outputPath).Msg("Writing converted chapter to CBZ file")
 	err = cbz.WriteChapterToCBZ(convertedChapter, outputPath)
 	if err != nil {
 		log.Error().Str("output_path", outputPath).Err(err).Msg("Failed to write converted chapter")
-		return fmt.Errorf("failed to write converted chapter: %v", err)
+		return fmt.Errorf("failed to write converted chapter: %w", err)
 	}
-	log.Debug().Str("output_path", outputPath).Msg("Successfully wrote converted chapter")
 
-	// If we're overriding a CBR file, delete the original CBR after successful write
+	// If overriding a CBR file, delete the original
 	if isCbrOverride {
-		log.Debug().Str("file", originalPath).Msg("Attempting to delete original CBR file")
 		err = os.Remove(originalPath)
 		if err != nil {
-			// Log the error but don't fail the operation since conversion succeeded
 			log.Warn().Str("file", originalPath).Err(err).Msg("Failed to delete original CBR file")
 		} else {
 			log.Info().Str("file", originalPath).Msg("Deleted original CBR file")
@@ -175,5 +157,4 @@ func Optimize(options *OptimizeOptions) error {
 
 	log.Info().Str("output", outputPath).Msg("Converted file written")
 	return nil
-
 }

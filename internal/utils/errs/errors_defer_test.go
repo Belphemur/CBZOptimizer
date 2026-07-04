@@ -46,7 +46,7 @@ func TestCapture(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var err error = tt.initial
+			var err = tt.initial
 			Capture(&err, tt.errFunc, tt.msg)
 			if err != nil && err.Error() != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, err.Error())
@@ -110,7 +110,7 @@ func TestCaptureGeneric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var err error = tt.initial
+			var err = tt.initial
 			CaptureGeneric(&err, tt.errFunc, tt.value, tt.msg)
 			if err != nil && err.Error() != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, err.Error())
