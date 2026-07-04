@@ -213,7 +213,7 @@ func TestFormatFlagWithSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	cmd, cleanup := setupTestCommand(t)
 	defer cleanup()
@@ -242,7 +242,7 @@ func TestFormatFlagWithShortForm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	cmd, cleanup := setupTestCommand(t)
 	defer cleanup()
@@ -271,7 +271,7 @@ func TestFormatFlagWithEquals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	cmd, cleanup := setupTestCommand(t)
 	defer cleanup()
@@ -300,7 +300,7 @@ func TestFormatFlagDefaultValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	cmd, cleanup := setupTestCommand(t)
 	defer cleanup()
@@ -329,7 +329,7 @@ func TestFormatFlagCaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	testCases := []string{"webp", "WEBP", "WebP", "WeBp"}
 

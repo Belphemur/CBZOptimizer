@@ -11,13 +11,19 @@ import (
 	"github.com/samber/lo"
 )
 
+// Converter defines the interface for image format converters.
+// All operations are file-to-file: no image data is held in memory in the happy path.
 type Converter interface {
-	// Format of the converter
-	Format() (format constant.ConversionFormat)
-	// ConvertChapter converts a manga chapter to the specified format.
-	//
-	// Returns partial success where some pages are converted and some are not.
+	// Format returns the output format of this converter.
+	Format() constant.ConversionFormat
+
+	// ConvertChapter converts all pages in a chapter from their source files to
+	// the target format. Pages are processed in parallel (bounded by CPU count).
+	// On success, chapter.Pages is updated with converted PageFile entries.
+	// Returns partial success (non-fatal errors) via errors.PageIgnoredError.
 	ConvertChapter(ctx context.Context, chapter *manga.Chapter, quality uint8, split bool, progress func(message string, current uint32, total uint32)) (*manga.Chapter, error)
+
+	// PrepareConverter ensures the external encoder binary is available.
 	PrepareConverter() error
 }
 
@@ -30,8 +36,8 @@ func Available() []constant.ConversionFormat {
 	return lo.Keys(converters)
 }
 
-// Get returns a packer by name.
-// If the packer is not available, an error is returned.
+// Get returns a converter by format name.
+// If the converter is not available, an error is returned.
 var Get = getConverter
 
 func getConverter(name constant.ConversionFormat) (Converter, error) {
@@ -39,7 +45,7 @@ func getConverter(name constant.ConversionFormat) (Converter, error) {
 		return converter, nil
 	}
 
-	return nil, fmt.Errorf("unkown converter \"%s\", available options are %s", name, strings.Join(lo.Map(Available(), func(item constant.ConversionFormat, index int) string {
+	return nil, fmt.Errorf("unknown converter \"%s\", available options are %s", name, strings.Join(lo.Map(Available(), func(item constant.ConversionFormat, index int) string {
 		return item.String()
 	}), ", "))
 }

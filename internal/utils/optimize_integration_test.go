@@ -213,7 +213,7 @@ func TestOptimizeIntegration(t *testing.T) {
 			}
 
 			// Clean up output file
-			os.Remove(expectedOutput)
+			_ = os.Remove(expectedOutput)
 		})
 	}
 }
@@ -394,7 +394,7 @@ func TestOptimizeIntegration_Timeout(t *testing.T) {
 		Quality:          85,
 		Override:         false,
 		Split:            false,
-		Timeout:          10 * time.Millisecond, // Very short timeout to force timeout
+		Timeout:          1 * time.Nanosecond, // Extremely short timeout to force timeout
 	}
 
 	err = Optimize(options)

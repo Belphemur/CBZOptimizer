@@ -1,25 +1,25 @@
 package webp
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
-	"image/png"
+	_ "image/png"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
+	"sort"
 	"sync"
 	"sync/atomic"
 
 	"github.com/belphemur/CBZOptimizer/v2/internal/manga"
 	"github.com/belphemur/CBZOptimizer/v2/pkg/converter/constant"
 	converterrors "github.com/belphemur/CBZOptimizer/v2/pkg/converter/errors"
-	"github.com/oliamb/cutter"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/slices"
 	_ "golang.org/x/image/webp"
 )
 
@@ -29,24 +29,16 @@ type Converter struct {
 	maxHeight  int
 	cropHeight int
 	isPrepared bool
-	// pageWorkerGuard limits how many pages are converted (i.e. how many
-	// cwebp binary processes are spawned) concurrently across the whole
-	// application, regardless of how many chapters are being processed in
-	// parallel (see the --parallelism flag). Without this shared limit, the
-	// per-chapter worker pool (sized to runtime.NumCPU()) would be
-	// multiplied by the number of chapters processed concurrently, leading
-	// to CPU/memory oversubscription since every page conversion spawns an
-	// external cwebp process.
+	// pageWorkerGuard limits concurrent cwebp processes across all chapters.
 	pageWorkerGuard chan struct{}
 }
 
-func (converter *Converter) Format() (format constant.ConversionFormat) {
+func (converter *Converter) Format() constant.ConversionFormat {
 	return constant.WebP
 }
 
 func New() *Converter {
 	return &Converter{
-		//maxHeight: 16383 / 2,
 		maxHeight:       4000,
 		cropHeight:      2000,
 		isPrepared:      false,
@@ -66,456 +58,290 @@ func (converter *Converter) PrepareConverter() error {
 	return nil
 }
 
+// ConvertChapter converts all pages in a chapter using file-to-file cwebp operations.
+// In the happy path, no image data is loaded into Go memory.
+// Splitting is attempted only if direct conversion fails due to dimension limits.
 func (converter *Converter) ConvertChapter(ctx context.Context, chapter *manga.Chapter, quality uint8, split bool, progress func(message string, current uint32, total uint32)) (*manga.Chapter, error) {
 	log.Debug().
 		Str("chapter", chapter.FilePath).
 		Int("pages", len(chapter.Pages)).
 		Uint8("quality", quality).
 		Bool("split", split).
-		Int("max_goroutines", runtime.NumCPU()).
-		Msg("Starting chapter conversion")
+		Msg("Starting file-to-file chapter conversion")
 
 	err := converter.PrepareConverter()
 	if err != nil {
-		log.Error().Str("chapter", chapter.FilePath).Err(err).Msg("Failed to prepare converter")
 		return nil, err
 	}
 
-	// Stage converted pages on disk in a temp folder instead of keeping them
-	// all in memory until the whole chapter is written out. This bounds
-	// memory usage for chapters with many/large pages; the caller is
-	// responsible for calling chapter.Cleanup() once the chapter has been
-	// written to its final CBZ file.
-	tempDir, err := os.MkdirTemp("", "cbzoptimizer-*")
-	if err != nil {
-		log.Error().Str("chapter", chapter.FilePath).Err(err).Msg("Failed to create staging temp folder")
-		return nil, fmt.Errorf("failed to create staging temp folder: %w", err)
-	}
-	chapter.TempDir = tempDir
-
-	var wgConvertedPages sync.WaitGroup
-	maxGoroutines := runtime.NumCPU()
-
-	pagesChan := make(chan *manga.PageContainer, maxGoroutines)
-	errChan := make(chan error, maxGoroutines)
-	doneChan := make(chan struct{})
-
-	var wgPages sync.WaitGroup
-	wgPages.Add(len(chapter.Pages))
-
-	// guard is shared across all chapters processed concurrently by this
-	// converter instance (see pageWorkerGuard doc comment) so that the total
-	// number of concurrently running cwebp processes stays bounded to
-	// runtime.NumCPU(), no matter how many chapters are being converted in
-	// parallel at the same time.
-	guard := converter.pageWorkerGuard
-	pagesMutex := sync.Mutex{}
-	var pages []*manga.Page
-	var totalPages = uint32(len(chapter.Pages))
-
-	log.Debug().
-		Str("chapter", chapter.FilePath).
-		Int("total_pages", len(chapter.Pages)).
-		Int("worker_count", maxGoroutines).
-		Str("staging_dir", tempDir).
-		Msg("Initialized conversion worker pool")
-
-	// failWithCleanup removes the staging temp folder before returning a
-	// fatal error for which no chapter is returned to the caller (and thus
-	// nobody else will clean it up).
-	failWithCleanup := func(err error) (*manga.Chapter, error) {
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			log.Warn().Str("chapter", chapter.FilePath).Err(removeErr).Msg("Failed to remove staging temp folder after error")
-		}
-		chapter.TempDir = ""
-		return nil, err
+	// Create output directory for converted files
+	outputDir := filepath.Join(chapter.TempDir, "output")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Check if context is already cancelled
+	// Check for early context cancellation
 	select {
 	case <-ctx.Done():
-		log.Warn().Str("chapter", chapter.FilePath).Msg("Chapter conversion cancelled due to timeout")
-		return failWithCleanup(ctx.Err())
+		return nil, ctx.Err()
 	default:
 	}
 
-	// Start the worker pool
-	go func() {
-		defer close(doneChan)
-		for page := range pagesChan {
-			select {
-			case <-ctx.Done():
-				return
-			case guard <- struct{}{}: // would block if guard channel is already filled
-			}
+	guard := converter.pageWorkerGuard
+	var totalPages atomic.Uint32
+	totalPages.Store(uint32(len(chapter.Pages)))
 
-			go func(pageToConvert *manga.PageContainer) {
-				defer func() {
-					wgConvertedPages.Done()
-					<-guard
-				}()
-
-				// Check context cancellation before processing
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				convertedPage, err := converter.convertPage(pageToConvert, quality, tempDir)
-				if err != nil {
-					if convertedPage == nil {
-						select {
-						case errChan <- err:
-						case <-ctx.Done():
-							return
-						}
-						return
-					}
-					buffer := new(bytes.Buffer)
-					err := png.Encode(buffer, convertedPage.Image)
-					if err != nil {
-						select {
-						case errChan <- err:
-						case <-ctx.Done():
-							return
-						}
-						return
-					}
-					if err := convertedPage.Page.Stage(tempDir, buffer, ".png"); err != nil {
-						select {
-						case errChan <- err:
-						case <-ctx.Done():
-							return
-						}
-						return
-					}
-				}
-				pagesMutex.Lock()
-				defer pagesMutex.Unlock()
-				pages = append(pages, convertedPage.Page)
-				currentTotalPages := atomic.LoadUint32(&totalPages)
-				progress(fmt.Sprintf("Converted %d/%d pages to %s format", len(pages), currentTotalPages, converter.Format()), uint32(len(pages)), currentTotalPages)
-			}(page)
-		}
-	}()
-
-	// Process pages
-	for _, page := range chapter.Pages {
-		select {
-		case <-ctx.Done():
-			log.Warn().Str("chapter", chapter.FilePath).Msg("Chapter conversion cancelled due to timeout")
-			return failWithCleanup(ctx.Err())
-		default:
-		}
-
-		go func(page *manga.Page) {
-			defer wgPages.Done()
-
-			splitNeeded, img, format, err := converter.checkPageNeedsSplit(page, split)
-			if err != nil {
-				var pageIgnoredError *converterrors.PageIgnoredError
-				if errors.As(err, &pageIgnoredError) {
-					log.Info().Err(err).Msg("Page ignored due to image decode error")
-				}
-
-				select {
-				case errChan <- err:
-				case <-ctx.Done():
-					return
-				}
-
-				wgConvertedPages.Add(1)
-				select {
-				case pagesChan <- manga.NewContainer(page, img, format, false):
-				case <-ctx.Done():
-					wgConvertedPages.Done()
-					return
-				}
-
-				return
-			}
-
-			if !splitNeeded {
-				wgConvertedPages.Add(1)
-				select {
-				case pagesChan <- manga.NewContainer(page, img, format, true):
-				case <-ctx.Done():
-					wgConvertedPages.Done()
-					return
-				}
-				return
-			}
-
-			images, err := converter.cropImage(img)
-			if err != nil {
-				select {
-				case errChan <- err:
-				case <-ctx.Done():
-					return
-				}
-				return
-			}
-
-			atomic.AddUint32(&totalPages, uint32(len(images)-1))
-			for i, img := range images {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				newPage := &manga.Page{
-					Index:          page.Index,
-					IsSplitted:     true,
-					SplitPartIndex: uint16(i),
-				}
-				wgConvertedPages.Add(1)
-				select {
-				case pagesChan <- manga.NewContainer(newPage, img, "N/A", true):
-				case <-ctx.Done():
-					wgConvertedPages.Done()
-					return
-				}
-			}
-		}(page)
+	type pageResult struct {
+		pages []*manga.PageFile
+		err   error
 	}
 
-	wgPages.Wait()
-	close(pagesChan)
+	results := make([]pageResult, len(chapter.Pages))
+	var wg sync.WaitGroup
+	var convertedCount atomic.Uint32
 
-	// Wait for all conversions to complete or context cancellation
+	for i, page := range chapter.Pages {
+		wg.Add(1)
+
+		go func(idx int, p *manga.PageFile) {
+			defer wg.Done()
+
+			// Check context before acquiring worker slot
+			select {
+			case <-ctx.Done():
+				results[idx] = pageResult{err: ctx.Err()}
+				return
+			case guard <- struct{}{}:
+			}
+			defer func() { <-guard }()
+
+			// Check context after acquiring worker slot
+			select {
+			case <-ctx.Done():
+				results[idx] = pageResult{err: ctx.Err()}
+				return
+			default:
+			}
+
+			pages, err := converter.convertPageFile(ctx, p, outputDir, quality, split)
+			results[idx] = pageResult{pages: pages, err: err}
+
+			current := convertedCount.Add(1)
+			total := totalPages.Load()
+			progress(fmt.Sprintf("Converted %d/%d pages to %s format", current, total, converter.Format()), current, total)
+		}(i, page)
+	}
+
+	// Wait for completion or context cancellation
 	done := make(chan struct{})
 	go func() {
-		defer close(done)
-		wgConvertedPages.Wait()
+		wg.Wait()
+		close(done)
 	}()
 
 	select {
 	case <-done:
-		// Conversion completed successfully
 	case <-ctx.Done():
-		log.Warn().Str("chapter", chapter.FilePath).Msg("Chapter conversion cancelled due to timeout")
-		return failWithCleanup(ctx.Err())
+		// Wait for in-flight goroutines to finish
+		<-done
+		return nil, ctx.Err()
 	}
 
-	close(errChan)
-	// Note: guard is the converter's shared pageWorkerGuard and must not be
-	// closed here since it is reused by subsequent (and possibly concurrent)
-	// ConvertChapter calls.
-
+	// Collect results
+	var convertedPages []*manga.PageFile
 	var errList []error
-	for err := range errChan {
-		errList = append(errList, err)
+
+	for _, result := range results {
+		if result.err != nil {
+			if errors.Is(result.err, context.DeadlineExceeded) || errors.Is(result.err, context.Canceled) {
+				return nil, result.err
+			}
+			errList = append(errList, result.err)
+		}
+		if result.pages != nil {
+			convertedPages = append(convertedPages, result.pages...)
+		}
 	}
 
-	var aggregatedError error = nil
+	if len(convertedPages) == 0 {
+		if len(errList) > 0 {
+			return nil, errors.Join(errList...)
+		}
+		return nil, fmt.Errorf("no pages were converted")
+	}
+
+	// Sort pages by index and split part
+	sort.Slice(convertedPages, func(i, j int) bool {
+		a, b := convertedPages[i], convertedPages[j]
+		if a.Index == b.Index {
+			return a.SplitPartIndex < b.SplitPartIndex
+		}
+		return a.Index < b.Index
+	})
+
+	chapter.Pages = convertedPages
+
+	var aggregatedError error
 	if len(errList) > 0 {
 		aggregatedError = errors.Join(errList...)
-		log.Debug().
-			Str("chapter", chapter.FilePath).
-			Int("error_count", len(errList)).
-			Err(errors.Join(errList...)).
-			Msg("Conversion completed with errors")
-	} else {
-		log.Debug().
-			Str("chapter", chapter.FilePath).
-			Int("pages_converted", len(pages)).
-			Msg("Conversion completed successfully")
 	}
-
-	slices.SortFunc(pages, func(a, b *manga.Page) int {
-		if a.Index == b.Index {
-			return int(a.SplitPartIndex) - int(b.SplitPartIndex)
-		}
-		return int(a.Index) - int(b.Index)
-	})
-	chapter.Pages = pages
 
 	log.Debug().
 		Str("chapter", chapter.FilePath).
-		Int("final_page_count", len(pages)).
-		Msg("Pages sorted and chapter updated")
-
-	runtime.GC()
-	log.Debug().Str("chapter", chapter.FilePath).Msg("Garbage collection completed")
+		Int("converted_pages", len(convertedPages)).
+		Msg("Chapter conversion completed")
 
 	return chapter, aggregatedError
 }
 
-func (converter *Converter) cropImage(img image.Image) ([]image.Image, error) {
-	bounds := img.Bounds()
-	height := bounds.Dy()
-	width := bounds.Dx()
+// convertPageFile converts a single page file to WebP format.
+// Returns the converted page(s) — multiple if splitting was needed.
+func (converter *Converter) convertPageFile(ctx context.Context, page *manga.PageFile, outputDir string, quality uint8, split bool) ([]*manga.PageFile, error) {
+	log.Debug().
+		Uint16("page_index", page.Index).
+		Str("input", page.FilePath).
+		Msg("Converting page file")
+
+	// If the page is already WebP, just return it as-is
+	if strings.ToLower(page.Extension) == ".webp" {
+		log.Debug().Uint16("page_index", page.Index).Msg("Page already WebP, skipping")
+		return []*manga.PageFile{page}, nil
+	}
+
+	// Try direct file-to-file conversion first (happy path — no memory allocation)
+	outputPath := filepath.Join(outputDir, fmt.Sprintf("%04d.webp", page.Index))
+	err := EncodeFile(page.FilePath, outputPath, uint(quality))
+
+	if err == nil {
+		// Success! No image decoding needed.
+		return []*manga.PageFile{{
+			Index:     page.Index,
+			Extension: ".webp",
+			FilePath:  outputPath,
+		}}, nil
+	}
+
+	// Direct conversion failed. Check if it's a dimension issue.
+	log.Debug().
+		Uint16("page_index", page.Index).
+		Err(err).
+		Msg("Direct conversion failed, checking dimensions")
+
+	// Read just the image header to get dimensions (no full decode)
+	width, height, decodeErr := getImageDimensions(page.FilePath)
+	if decodeErr != nil {
+		// Can't even read the image header — keep the original file
+		log.Info().
+			Uint16("page_index", page.Index).
+			Err(decodeErr).
+			Msg("Cannot decode image, keeping original")
+		return []*manga.PageFile{page}, converterrors.NewPageIgnored(
+			fmt.Sprintf("page %d: failed to decode image (%s)", page.Index, decodeErr.Error()))
+	}
+
+	log.Debug().
+		Uint16("page_index", page.Index).
+		Int("width", width).
+		Int("height", height).
+		Msg("Image dimensions read")
+
+	// If height exceeds WebP max and split is not enabled, keep original
+	if height >= webpMaxHeight && !split {
+		log.Info().
+			Uint16("page_index", page.Index).
+			Int("height", height).
+			Msg("Page too tall for WebP, keeping original")
+		return []*manga.PageFile{page}, converterrors.NewPageIgnored(
+			fmt.Sprintf("page %d is too tall [max: %dpx] to be converted to webp format", page.Index, webpMaxHeight))
+	}
+
+	// If height exceeds our split threshold and split is enabled, use cwebp -crop
+	if height >= converter.maxHeight && split {
+		return converter.splitAndConvert(ctx, page, outputDir, quality, width, height)
+	}
+
+	// Height is within limits but conversion still failed for another reason.
+	// Keep the original file.
+	log.Warn().
+		Uint16("page_index", page.Index).
+		Err(err).
+		Msg("Conversion failed for non-dimension reason, keeping original")
+	return []*manga.PageFile{page}, converterrors.NewPageIgnored(
+		fmt.Sprintf("page %d: conversion failed (%s)", page.Index, err.Error()))
+}
+
+// splitAndConvert splits a tall image into multiple parts using cwebp -crop
+// and converts each part. No Go-side image decode is needed.
+func (converter *Converter) splitAndConvert(ctx context.Context, page *manga.PageFile, outputDir string, quality uint8, width, height int) ([]*manga.PageFile, error) {
+	log.Debug().
+		Uint16("page_index", page.Index).
+		Int("width", width).
+		Int("height", height).
+		Int("crop_height", converter.cropHeight).
+		Msg("Splitting and converting page using cwebp -crop")
 
 	numParts := height / converter.cropHeight
 	if height%converter.cropHeight != 0 {
 		numParts++
 	}
 
-	log.Debug().
-		Int("original_width", width).
-		Int("original_height", height).
-		Int("crop_height", converter.cropHeight).
-		Int("num_parts", numParts).
-		Msg("Starting image cropping for page splitting")
-
-	parts := make([]image.Image, numParts)
+	var pages []*manga.PageFile
 
 	for i := 0; i < numParts; i++ {
+		select {
+		case <-ctx.Done():
+			return pages, ctx.Err()
+		default:
+		}
+
+		yOffset := i * converter.cropHeight
 		partHeight := converter.cropHeight
 		if i == numParts-1 {
-			partHeight = height - i*converter.cropHeight
+			partHeight = height - yOffset
 		}
 
-		log.Debug().
-			Int("part_index", i).
-			Int("part_height", partHeight).
-			Int("y_offset", i*converter.cropHeight).
-			Msg("Cropping image part")
+		outputPath := filepath.Join(outputDir, fmt.Sprintf("%04d-%02d.webp", page.Index, i))
+		err := EncodeFileWithCrop(page.FilePath, outputPath, uint(quality), 0, yOffset, width, partHeight)
 
-		part, err := cutter.Crop(img, cutter.Config{
-			Width:  bounds.Dx(),
-			Height: partHeight,
-			Anchor: image.Point{Y: i * converter.cropHeight},
-			Mode:   cutter.TopLeft,
-		})
 		if err != nil {
 			log.Error().
-				Int("part_index", i).
+				Uint16("page_index", page.Index).
+				Int("part", i).
 				Err(err).
-				Msg("Failed to crop image part")
-			return nil, fmt.Errorf("error cropping part %d: %v", i+1, err)
+				Msg("Failed to convert split part")
+			return nil, fmt.Errorf("failed to convert split part %d of page %d: %w", i, page.Index, err)
 		}
 
-		parts[i] = part
-
-		log.Debug().
-			Int("part_index", i).
-			Int("cropped_width", part.Bounds().Dx()).
-			Int("cropped_height", part.Bounds().Dy()).
-			Msg("Image part cropped successfully")
+		pages = append(pages, &manga.PageFile{
+			Index:          page.Index,
+			Extension:      ".webp",
+			FilePath:       outputPath,
+			IsSplitted:     true,
+			SplitPartIndex: uint16(i),
+		})
 	}
-
-	log.Debug().
-		Int("total_parts", len(parts)).
-		Msg("Image cropping completed")
-
-	return parts, nil
-}
-
-func (converter *Converter) checkPageNeedsSplit(page *manga.Page, splitRequested bool) (bool, image.Image, string, error) {
-	log.Debug().
-		Uint16("page_index", page.Index).
-		Bool("split_requested", splitRequested).
-		Int("page_size", len(page.Contents.Bytes())).
-		Msg("Analyzing page for splitting")
-
-	reader := bytes.NewBuffer(page.Contents.Bytes())
-	img, format, err := image.Decode(reader)
-	if err != nil {
-		log.Debug().Uint16("page_index", page.Index).Err(err).Msg("Failed to decode page image")
-		return false, nil, format, converterrors.NewPageIgnored(fmt.Sprintf("page %d: failed to decode image (%s)", page.Index, err.Error()))
-	}
-
-	bounds := img.Bounds()
-	height := bounds.Dy()
-	width := bounds.Dx()
 
 	log.Debug().
 		Uint16("page_index", page.Index).
-		Int("width", width).
-		Int("height", height).
-		Str("format", format).
-		Int("max_height", converter.maxHeight).
-		Int("webp_max_height", webpMaxHeight).
-		Msg("Page dimensions analyzed")
+		Int("parts", len(pages)).
+		Msg("Split conversion completed")
 
-	if height >= webpMaxHeight && !splitRequested {
-		log.Debug().
-			Uint16("page_index", page.Index).
-			Int("height", height).
-			Int("webp_max", webpMaxHeight).
-			Msg("Page too tall for WebP format, would be ignored")
-		return false, img, format, converterrors.NewPageIgnored(fmt.Sprintf("page %d is too tall [max: %dpx] to be converted to webp format", page.Index, webpMaxHeight))
-	}
-
-	needsSplit := height >= converter.maxHeight && splitRequested
-	log.Debug().
-		Uint16("page_index", page.Index).
-		Bool("needs_split", needsSplit).
-		Msg("Page splitting decision made")
-
-	return needsSplit, img, format, nil
+	return pages, nil
 }
 
-func (converter *Converter) convertPage(container *manga.PageContainer, quality uint8, tempDir string) (*manga.PageContainer, error) {
-	log.Debug().
-		Uint16("page_index", container.Page.Index).
-		Str("format", container.Format).
-		Bool("to_be_converted", container.IsToBeConverted).
-		Uint8("quality", quality).
-		Msg("Converting page")
-
-	// Fix WebP format detection (case insensitive)
-	if container.Format == "webp" || container.Format == "WEBP" {
-		log.Debug().
-			Uint16("page_index", container.Page.Index).
-			Msg("Page already in WebP format, skipping conversion")
-		container.Page.Extension = ".webp"
-		return container, nil
-	}
-	if !container.IsToBeConverted {
-		log.Debug().
-			Uint16("page_index", container.Page.Index).
-			Msg("Page marked as not to be converted, skipping")
-		return container, nil
-	}
-
-	log.Debug().
-		Uint16("page_index", container.Page.Index).
-		Uint8("quality", quality).
-		Msg("Encoding page to WebP format")
-
-	converted, err := converter.convert(container.Image, uint(quality))
+// getImageDimensions reads only the image header to determine dimensions.
+// This is much cheaper than a full image.Decode — only a few bytes are read.
+func getImageDimensions(filePath string) (width, height int, err error) {
+	f, err := os.Open(filePath)
 	if err != nil {
-		log.Error().
-			Uint16("page_index", container.Page.Index).
-			Err(err).
-			Msg("Failed to convert page to WebP")
-		return nil, err
+		return 0, 0, err
 	}
+	defer func() { _ = f.Close() }()
 
-	originalSize := container.Page.Size
-	convertedSize := converted.Len()
-
-	if err := container.Page.Stage(tempDir, converted, ".webp"); err != nil {
-		log.Error().
-			Uint16("page_index", container.Page.Index).
-			Err(err).
-			Msg("Failed to stage converted page to disk")
-		return nil, err
-	}
-	container.HasBeenConverted = true
-
-	log.Debug().
-		Uint16("page_index", container.Page.Index).
-		Uint64("original_size", originalSize).
-		Int("converted_size", convertedSize).
-		Msg("Page conversion completed")
-
-	return container, nil
-}
-
-// convert converts an image to the WebP format. It decodes the image from the input buffer,
-// encodes it as a WebP file using the webp.Encode() function, and returns the resulting WebP
-// file as a bytes.Buffer.
-func (converter *Converter) convert(image image.Image, quality uint) (*bytes.Buffer, error) {
-	var buf bytes.Buffer
-	err := Encode(&buf, image, quality)
+	config, _, err := image.DecodeConfig(f)
 	if err != nil {
-		return nil, err
+		return 0, 0, err
 	}
 
-	return &buf, nil
+	return config.Width, config.Height, nil
 }

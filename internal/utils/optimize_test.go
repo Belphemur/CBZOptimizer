@@ -276,7 +276,7 @@ func TestOptimize(t *testing.T) {
 			}
 
 			// Clean up output file
-			os.Remove(expectedOutput)
+			_ = os.Remove(expectedOutput)
 		})
 	}
 }

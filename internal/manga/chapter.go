@@ -6,38 +6,36 @@ import (
 	"time"
 )
 
+// Chapter represents a comic book chapter with pages stored on disk.
 type Chapter struct {
-	// FilePath is the path to the chapter's directory.
+	// FilePath is the path to the original archive file.
 	FilePath string
-	// Pages is a slice of pointers to Page objects.
-	Pages []*Page
-	// ComicInfo is a string containing information about the chapter.
+	// Pages is a slice of page files on disk.
+	Pages []*PageFile
+	// ComicInfoXml holds the ComicInfo.xml content (small, kept in memory).
 	ComicInfoXml string
-	// IsConverted is a boolean that indicates whether the chapter has been converted.
+	// IsConverted indicates whether the chapter has already been converted.
 	IsConverted bool
-	// ConvertedTime is a pointer to a time.Time object that indicates when the chapter was converted. Nil mean not converted.
+	// ConvertedTime is when the chapter was converted.
 	ConvertedTime time.Time
-	// TempDir, when non-empty, is a staging temp folder holding converted
-	// page contents on disk (see Page.TempFilePath) rather than fully in
-	// memory. It should be removed via Cleanup once the chapter has been
-	// written out (or is no longer needed).
+	// TempDir is the root temp directory for this chapter's extracted/converted files.
+	// Cleanup removes this entire directory.
 	TempDir string
 }
 
-// SetConverted sets the IsConverted field to true and sets the ConvertedTime field to the current time.
+// SetConverted marks the chapter as converted with the current timestamp.
 func (chapter *Chapter) SetConverted() {
 	chapter.IsConverted = true
 	chapter.ConvertedTime = time.Now()
 }
 
-// Cleanup removes the chapter's staging temp folder (if any), releasing any
-// page contents that were staged to disk during conversion.
+// Cleanup removes the chapter's temp directory and all extracted/converted files.
 func (chapter *Chapter) Cleanup() error {
 	if chapter.TempDir == "" {
 		return nil
 	}
 	if err := os.RemoveAll(chapter.TempDir); err != nil {
-		return fmt.Errorf("failed to remove staging temp folder: %w", err)
+		return fmt.Errorf("failed to remove temp directory: %w", err)
 	}
 	chapter.TempDir = ""
 	return nil

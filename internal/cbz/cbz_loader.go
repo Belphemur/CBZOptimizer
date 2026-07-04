@@ -3,11 +3,11 @@ package cbz
 import (
 	"archive/zip"
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,149 +18,247 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func LoadChapter(filePath string) (*manga.Chapter, error) {
-	log.Debug().Str("file_path", filePath).Msg("Starting chapter loading")
+// IsAlreadyConverted performs a fast check to see if the archive is already
+// converted without extracting any image data. It reads only the zip comment
+// and metadata files (converted.txt) to determine conversion status.
+func IsAlreadyConverted(filePath string) (bool, error) {
+	log.Debug().Str("file_path", filePath).Msg("Checking if already converted")
 
-	ctx := context.Background()
+	pathLower := strings.ToLower(filepath.Ext(filePath))
+
+	if pathLower == ".cbz" {
+		r, err := zip.OpenReader(filePath)
+		if err != nil {
+			return false, fmt.Errorf("failed to open CBZ for conversion check: %w", err)
+		}
+		defer errs.Capture(&err, r.Close, "failed to close zip reader")
+
+		// Check zip comment
+		if r.Comment != "" {
+			scanner := bufio.NewScanner(strings.NewReader(r.Comment))
+			if scanner.Scan() {
+				_, err := dateparse.ParseAny(scanner.Text())
+				if err == nil {
+					log.Debug().Str("file_path", filePath).Msg("Already converted (zip comment)")
+					return true, nil
+				}
+			}
+		}
+
+		// Check for converted.txt inside the archive
+		for _, f := range r.File {
+			if strings.ToLower(filepath.Base(f.Name)) == "converted.txt" {
+				rc, err := f.Open()
+				if err != nil {
+					continue
+				}
+				scanner := bufio.NewScanner(rc)
+				if scanner.Scan() {
+					_, parseErr := dateparse.ParseAny(scanner.Text())
+					_ = rc.Close()
+					if parseErr == nil {
+						log.Debug().Str("file_path", filePath).Msg("Already converted (converted.txt)")
+						return true, nil
+					}
+				} else {
+					_ = rc.Close()
+				}
+			}
+		}
+	}
+
+	// For CBR files, we need to use the archives library to check
+	if pathLower == ".cbr" {
+		ctx := context.Background()
+		fsys, err := archives.FileSystem(ctx, filePath, nil)
+		if err != nil {
+			return false, fmt.Errorf("failed to open archive: %w", err)
+		}
+
+		var converted bool
+		_ = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			if strings.ToLower(filepath.Base(path)) == "converted.txt" {
+				file, err := fsys.Open(path)
+				if err != nil {
+					return nil
+				}
+				defer func() { _ = file.Close() }()
+				scanner := bufio.NewScanner(file)
+				if scanner.Scan() {
+					_, err := dateparse.ParseAny(scanner.Text())
+					if err == nil {
+						converted = true
+						return fs.SkipAll
+					}
+				}
+			}
+			return nil
+		})
+		return converted, nil
+	}
+
+	return false, nil
+}
+
+// ExtractChapter extracts an archive (CBZ/CBR) to a temp directory on disk.
+// Pages are streamed directly to files — no image data is held in memory.
+// Returns a Chapter with PageFile entries pointing to extracted files.
+func ExtractChapter(filePath string) (*manga.Chapter, error) {
+	log.Debug().Str("file_path", filePath).Msg("Extracting chapter to disk")
+
+	// Create temp directory for extraction
+	tempDir, err := os.MkdirTemp("", "cbzoptimizer-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	inputDir := filepath.Join(tempDir, "input")
+	if err := os.MkdirAll(inputDir, 0755); err != nil {
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to create input directory: %w", err)
+	}
 
 	chapter := &manga.Chapter{
 		FilePath: filePath,
+		TempDir:  tempDir,
 	}
 
-	// First, try to read the comment using zip.OpenReader for CBZ files
-	if strings.ToLower(filepath.Ext(filePath)) == ".cbz" {
-		log.Debug().Str("file_path", filePath).Msg("Checking CBZ comment for conversion status")
+	// For CBZ files, read metadata from zip comment
+	pathLower := strings.ToLower(filepath.Ext(filePath))
+	if pathLower == ".cbz" {
 		r, err := zip.OpenReader(filePath)
 		if err == nil {
-			defer errs.Capture(&err, r.Close, "failed to close zip reader for comment")
-
-			// Check for comment
 			if r.Comment != "" {
-				log.Debug().Str("file_path", filePath).Str("comment", r.Comment).Msg("Found CBZ comment")
 				scanner := bufio.NewScanner(strings.NewReader(r.Comment))
 				if scanner.Scan() {
-					convertedTime := scanner.Text()
-					log.Debug().Str("file_path", filePath).Str("converted_time", convertedTime).Msg("Parsing conversion timestamp")
-					chapter.ConvertedTime, err = dateparse.ParseAny(convertedTime)
+					t, err := dateparse.ParseAny(scanner.Text())
 					if err == nil {
 						chapter.IsConverted = true
-						log.Debug().Str("file_path", filePath).Time("converted_time", chapter.ConvertedTime).Msg("Chapter marked as previously converted")
-					} else {
-						log.Debug().Str("file_path", filePath).Err(err).Msg("Failed to parse conversion timestamp")
+						chapter.ConvertedTime = t
 					}
 				}
-			} else {
-				log.Debug().Str("file_path", filePath).Msg("No CBZ comment found")
 			}
-		} else {
-			log.Debug().Str("file_path", filePath).Err(err).Msg("Failed to open CBZ file for comment reading")
+			_ = r.Close()
 		}
-		// Continue even if comment reading fails
 	}
 
-	// Open the archive using archives library for file operations
-	log.Debug().Str("file_path", filePath).Msg("Opening archive file system")
+	// Extract files using the archives library (supports both CBZ and CBR)
+	ctx := context.Background()
 	fsys, err := archives.FileSystem(ctx, filePath, nil)
 	if err != nil {
-		log.Error().Str("file_path", filePath).Err(err).Msg("Failed to open archive file system")
-		return nil, fmt.Errorf("failed to open archive file: %w", err)
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to open archive: %w", err)
 	}
 
-	// Walk through all files in the filesystem
-	log.Debug().Str("file_path", filePath).Msg("Starting filesystem walk")
 	err = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
 		if d.IsDir() {
 			return nil
 		}
 
-		return func() error {
-			// Open the file
+		ext := strings.ToLower(filepath.Ext(path))
+		fileName := strings.ToLower(filepath.Base(path))
+
+		// Handle ComicInfo.xml
+		if ext == ".xml" && fileName == "comicinfo.xml" {
 			file, err := fsys.Open(path)
 			if err != nil {
-				return fmt.Errorf("failed to open file %s: %w", path, err)
+				return fmt.Errorf("failed to open ComicInfo.xml: %w", err)
 			}
-			defer errs.Capture(&err, file.Close, fmt.Sprintf("failed to close file %s", path))
+			defer func() { _ = file.Close() }()
+			xmlContent, err := io.ReadAll(file)
+			if err != nil {
+				return fmt.Errorf("failed to read ComicInfo.xml: %w", err)
+			}
+			chapter.ComicInfoXml = string(xmlContent)
+			log.Debug().Str("file_path", filePath).Int("xml_size", len(xmlContent)).Msg("ComicInfo.xml loaded")
+			return nil
+		}
 
-			// Determine the file extension
-			ext := strings.ToLower(filepath.Ext(path))
-			fileName := strings.ToLower(filepath.Base(path))
-
-			if ext == ".xml" && fileName == "comicinfo.xml" {
-				log.Debug().Str("file_path", filePath).Str("archive_file", path).Msg("Found ComicInfo.xml")
-				// Read the ComicInfo.xml file content
-				xmlContent, err := io.ReadAll(file)
-				if err != nil {
-					log.Error().Str("file_path", filePath).Str("archive_file", path).Err(err).Msg("Failed to read ComicInfo.xml")
-					return fmt.Errorf("failed to read ComicInfo.xml content: %w", err)
-				}
-				chapter.ComicInfoXml = string(xmlContent)
-				log.Debug().Str("file_path", filePath).Int("xml_size", len(xmlContent)).Msg("ComicInfo.xml loaded")
-			} else if !chapter.IsConverted && ext == ".txt" && fileName == "converted.txt" {
-				log.Debug().Str("file_path", filePath).Str("archive_file", path).Msg("Found converted.txt")
-				textContent, err := io.ReadAll(file)
-				if err != nil {
-					log.Error().Str("file_path", filePath).Str("archive_file", path).Err(err).Msg("Failed to read converted.txt")
-					return fmt.Errorf("failed to read converted.txt content: %w", err)
-				}
-				scanner := bufio.NewScanner(bytes.NewReader(textContent))
-				if scanner.Scan() {
-					convertedTime := scanner.Text()
-					log.Debug().Str("file_path", filePath).Str("converted_time", convertedTime).Msg("Parsing converted.txt timestamp")
-					chapter.ConvertedTime, err = dateparse.ParseAny(convertedTime)
-					if err != nil {
-						log.Error().Str("file_path", filePath).Err(err).Msg("Failed to parse converted time from converted.txt")
-						return fmt.Errorf("failed to parse converted time: %w", err)
-					}
+		// Handle converted.txt (check conversion status)
+		if !chapter.IsConverted && ext == ".txt" && fileName == "converted.txt" {
+			file, err := fsys.Open(path)
+			if err != nil {
+				return fmt.Errorf("failed to open converted.txt: %w", err)
+			}
+			defer func() { _ = file.Close() }()
+			scanner := bufio.NewScanner(file)
+			if scanner.Scan() {
+				t, err := dateparse.ParseAny(scanner.Text())
+				if err == nil {
 					chapter.IsConverted = true
-					log.Debug().Str("file_path", filePath).Time("converted_time", chapter.ConvertedTime).Msg("Chapter marked as converted from converted.txt")
+					chapter.ConvertedTime = t
 				}
-			} else {
-				// Read the file contents for page
-				log.Debug().Str("file_path", filePath).Str("archive_file", path).Str("extension", ext).Msg("Processing page file")
-				buf := new(bytes.Buffer)
-				bytesCopied, err := io.Copy(buf, file)
-				if err != nil {
-					log.Error().Str("file_path", filePath).Str("archive_file", path).Err(err).Msg("Failed to read page file contents")
-					return fmt.Errorf("failed to read file contents: %w", err)
-				}
-
-				// Create a new Page object
-				page := &manga.Page{
-					Index:      uint16(len(chapter.Pages)), // Simple index based on order
-					Extension:  ext,
-					Size:       uint64(buf.Len()),
-					Contents:   buf,
-					IsSplitted: false,
-				}
-
-				// Add the page to the chapter
-				chapter.Pages = append(chapter.Pages, page)
-				log.Debug().
-					Str("file_path", filePath).
-					Str("archive_file", path).
-					Uint16("page_index", page.Index).
-					Int64("bytes_read", bytesCopied).
-					Msg("Page loaded successfully")
 			}
 			return nil
-		}()
+		}
+
+		// Extract image file to disk
+		file, err := fsys.Open(path)
+		if err != nil {
+			return fmt.Errorf("failed to open file %s: %w", path, err)
+		}
+		defer func() { _ = file.Close() }()
+
+		// Create output file with sequential naming
+		pageIndex := uint16(len(chapter.Pages))
+		outputName := fmt.Sprintf("%04d%s", pageIndex, ext)
+		outputPath := filepath.Join(inputDir, outputName)
+
+		outFile, err := os.Create(outputPath)
+		if err != nil {
+			return fmt.Errorf("failed to create output file %s: %w", outputPath, err)
+		}
+
+		_, err = io.Copy(outFile, file)
+		closeErr := outFile.Close()
+		if err != nil {
+			_ = os.Remove(outputPath)
+			return fmt.Errorf("failed to write file %s: %w", outputPath, err)
+		}
+		if closeErr != nil {
+			_ = os.Remove(outputPath)
+			return fmt.Errorf("failed to close file %s: %w", outputPath, closeErr)
+		}
+
+		page := &manga.PageFile{
+			Index:     pageIndex,
+			Extension: ext,
+			FilePath:  outputPath,
+		}
+		chapter.Pages = append(chapter.Pages, page)
+
+		log.Debug().
+			Str("file_path", filePath).
+			Str("archive_file", path).
+			Uint16("page_index", pageIndex).
+			Msg("Page extracted to disk")
+
+		return nil
 	})
 
 	if err != nil {
-		log.Error().Str("file_path", filePath).Err(err).Msg("Failed during filesystem walk")
-		return nil, err
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to extract archive: %w", err)
 	}
 
 	log.Debug().
 		Str("file_path", filePath).
-		Int("pages_loaded", len(chapter.Pages)).
+		Int("pages_extracted", len(chapter.Pages)).
 		Bool("is_converted", chapter.IsConverted).
-		Bool("has_comic_info", chapter.ComicInfoXml != "").
-		Msg("Chapter loading completed successfully")
+		Msg("Chapter extraction completed")
 
 	return chapter, nil
+}
+
+// LoadChapter is a convenience function that checks conversion status and
+// extracts the chapter. It returns early if already converted (without
+// extracting all pages).
+func LoadChapter(filePath string) (*manga.Chapter, error) {
+	return ExtractChapter(filePath)
 }
