@@ -95,15 +95,6 @@ go test -v ./pkg/converter/...
 go test -v ./internal/utils/...
 ```
 
-A large-file integration test (`TestOptimizeIntegration_LargeFile`) exercises the
-optimize pipeline against a ~1GB CBZ fixture stored via Git LFS
-(`testdata/large/large_chapter.cbz`, tracked in `.gitattributes`). It is skipped
-by default; fetch the fixture with `git lfs pull` and opt in with:
-
-```bash
-CBZ_RUN_LARGE_FILE_TEST=1 go test -v ./internal/utils/... -run TestOptimizeIntegration_LargeFile
-```
-
 ### Linting
 
 ```bash
