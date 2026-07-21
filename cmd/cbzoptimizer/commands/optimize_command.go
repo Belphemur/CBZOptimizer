@@ -73,6 +73,13 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 	}
 	log.Debug().Bool("split", split).Msg("Split parameter parsed")
 
+	keepFilenames, err := cmd.Flags().GetBool("keep-filenames")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse keep-filenames flag")
+		return fmt.Errorf("invalid keep-filenames value")
+	}
+	log.Debug().Bool("keep-filenames", keepFilenames).Msg("Keep-filenames parameter parsed")
+
 	timeout, err := cmd.Flags().GetDuration("timeout")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to parse timeout flag")
@@ -121,14 +128,15 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 			log.Debug().Int("worker_id", workerID).Msg("Worker started")
 			for path := range fileChan {
 				log.Debug().Int("worker_id", workerID).Str("file_path", path).Msg("Worker processing file")
-				err := utils2.Optimize(&utils2.OptimizeOptions{
-					ChapterConverter: chapterConverter,
-					Path:             path,
-					Quality:          quality,
-					Override:         override,
-					Split:            split,
-					Timeout:          timeout,
-				})
+			err := utils2.Optimize(&utils2.OptimizeOptions{
+				ChapterConverter: chapterConverter,
+				Path:             path,
+				Quality:          quality,
+				Override:         override,
+				Split:            split,
+				KeepFilenames:    keepFilenames,
+				Timeout:          timeout,
+			})
 				if err != nil {
 					log.Error().Int("worker_id", workerID).Str("file_path", path).Err(err).Msg("Worker encountered error")
 					errMutex.Lock()

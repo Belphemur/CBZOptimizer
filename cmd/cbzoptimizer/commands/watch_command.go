@@ -65,6 +65,8 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 
 	split := viper.GetBool("split")
 
+	keepFilenames := viper.GetBool("keep-filenames")
+
 	timeout := viper.GetDuration("timeout")
 
 	backfill := viper.GetBool("backfill")
@@ -79,7 +81,7 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare converter: %w", err)
 	}
-	log.Info().Str("path", path).Bool("override", override).Uint8("quality", quality).Str("format", converterType.String()).Bool("split", split).Bool("backfill", backfill).Msg("Watching directory")
+	log.Info().Str("path", path).Bool("override", override).Uint8("quality", quality).Str("format", converterType.String()).Bool("split", split).Bool("keep_filenames", keepFilenames).Bool("backfill", backfill).Msg("Watching directory")
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -98,6 +100,7 @@ func WatchCommand(_ *cobra.Command, args []string) error {
 		Quality:          quality,
 		Override:         override,
 		Split:            split,
+		KeepFilenames:    keepFilenames,
 		Timeout:          timeout,
 	})
 	defer queue.Stop()

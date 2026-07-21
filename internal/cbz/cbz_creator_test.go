@@ -101,6 +101,70 @@ func TestWriteChapterToCBZ(t *testing.T) {
 			},
 			expectedFiles: []string{"0000-01.jpg"},
 		},
+		{
+			// --keep-filenames: the page stem is reused as-is with the
+			// current Extension, regardless of the source extension.
+			name: "Preserve original filename, extension swap",
+			chapter: func(t *testing.T, dir string) *manga.Chapter {
+				return &manga.Chapter{
+					Pages: []*manga.PageFile{
+						{
+							Index:        0,
+							Extension:    ".webp",
+							FilePath:     createTempPage(t, dir, "image data", ".webp"),
+							OriginalName: "page01.png",
+						},
+					},
+				}
+			},
+			expectedFiles: []string{"page01.webp"},
+		},
+		{
+			// --keep-filenames for a split page: stem is preserved, the
+			// split part index still gets appended to keep parts distinct.
+			name: "Split page with OriginalName",
+			chapter: func(t *testing.T, dir string) *manga.Chapter {
+				return &manga.Chapter{
+					Pages: []*manga.PageFile{
+						{
+							Index:          0,
+							Extension:      ".webp",
+							FilePath:       createTempPage(t, dir, "split data", ".webp"),
+							IsSplitted:     true,
+							SplitPartIndex: 2,
+							OriginalName:   "tall.png",
+						},
+					},
+				}
+			},
+			expectedFiles: []string{"tall-02.webp"},
+		},
+		{
+			// Two pages share the same OriginalName (rare but possible
+			// with subdirectories): the first keeps the stem, the second
+			// falls back to the indexed form to avoid duplicate zip
+			// entries.
+			name: "Duplicate OriginalName falls back to indexed form",
+			chapter: func(t *testing.T, dir string) *manga.Chapter {
+				return &manga.Chapter{
+					Pages: []*manga.PageFile{
+						{
+							Index:        0,
+							Extension:    ".webp",
+							FilePath:     createTempPage(t, dir, "first", ".webp"),
+							OriginalName: "cover.png",
+						},
+						{
+							Index:        1,
+							Extension:    ".webp",
+							FilePath:     createTempPage(t, dir, "second", ".webp"),
+							OriginalName: "cover.png",
+						},
+					},
+				}
+			},
+			expectedFiles: []string{"cover.webp", "cover_0001.webp"},
+		},
 	}
 
 	for _, tc := range testCases {

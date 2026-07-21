@@ -157,12 +157,12 @@ func TestIsAlreadyConverted_CBZWithNonDateComment(t *testing.T) {
 }
 
 func TestExtractChapter_NonexistentFile(t *testing.T) {
-	_, err := ExtractChapter(context.Background(), "/nonexistent/file.cbz")
+	_, err := ExtractChapter(context.Background(), "/nonexistent/file.cbz", false)
 	require.Error(t, err)
 }
 
 func TestExtractChapter_PageExtensions(t *testing.T) {
-	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz")
+	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz", false)
 	require.NoError(t, err)
 	defer func() { _ = chapter.Cleanup() }()
 
@@ -174,17 +174,36 @@ func TestExtractChapter_PageExtensions(t *testing.T) {
 }
 
 func TestExtractChapter_PagesHaveSequentialIndices(t *testing.T) {
-	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz")
-	require.NoError(t, err)
-	defer func() { _ = chapter.Cleanup() }()
+	t.Run("default sequential naming", func(t *testing.T) {
+		chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz", false)
+		require.NoError(t, err)
+		defer func() { _ = chapter.Cleanup() }()
 
-	for i, page := range chapter.Pages {
-		assert.Equal(t, uint16(i), page.Index)
-	}
+		for i, page := range chapter.Pages {
+			assert.Equal(t, uint16(i), page.Index)
+			assert.Empty(t, page.OriginalName, "keep-filenames disabled: OriginalName must stay empty")
+		}
+	})
+
+	t.Run("keep-filenames records OriginalName", func(t *testing.T) {
+		chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz", true)
+		require.NoError(t, err)
+		defer func() { _ = chapter.Cleanup() }()
+
+		require.NotEmpty(t, chapter.Pages)
+		for i, page := range chapter.Pages {
+			assert.Equal(t, uint16(i), page.Index)
+			assert.NotEmpty(t, page.OriginalName, "keep-filenames enabled: OriginalName must be set for every page")
+			// OriginalName must be a bare base name (no directory prefix), even
+			// when the source archive nests pages in subdirectories.
+			assert.Equal(t, filepath.Base(page.OriginalName), page.OriginalName,
+				"OriginalName should be a base filename with no path components")
+		}
+	})
 }
 
 func TestExtractChapter_Cleanup(t *testing.T) {
-	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz")
+	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz", false)
 	require.NoError(t, err)
 
 	tempDir := chapter.TempDir
@@ -199,7 +218,7 @@ func TestExtractChapter_Cleanup(t *testing.T) {
 }
 
 func TestExtractChapter_CBR(t *testing.T) {
-	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 1.cbr")
+	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 1.cbr", false)
 	require.NoError(t, err)
 	defer func() { _ = chapter.Cleanup() }()
 
@@ -212,7 +231,7 @@ func TestExtractChapter_CBR(t *testing.T) {
 }
 
 func TestExtractChapter_ConvertedStatus(t *testing.T) {
-	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 10_converted.cbz")
+	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 10_converted.cbz", false)
 	require.NoError(t, err)
 	defer func() { _ = chapter.Cleanup() }()
 
@@ -356,7 +375,7 @@ func TestExtractChapter_WithConvertedTxt(t *testing.T) {
 	_ = w.Close()
 	_ = f.Close()
 
-	chapter, err := ExtractChapter(context.Background(), cbzPath)
+	chapter, err := ExtractChapter(context.Background(), cbzPath, false)
 	require.NoError(t, err)
 	defer func() { _ = chapter.Cleanup() }()
 

@@ -58,6 +58,12 @@ cbzconverter optimize [folder] --format=webp
 cbzconverter optimize [folder] --format WEBP
 ```
 
+Preserve original page filenames in the output CBZ instead of sequential renumbering:
+
+```sh
+cbzconverter optimize [folder] --keep-filenames --quality 85 --format webp
+```
+
 With timeout to avoid hanging on problematic chapters:
 
 ```sh
@@ -103,6 +109,7 @@ docker run -v /path/to/comics:/comics ghcr.io/belphemur/cbzoptimizer:latest watc
 - `--format`, `-f`: Format to convert the images to (currently supports: webp). Default is webp.
   - Can be specified as: `--format webp`, `-f webp`, or `--format=webp`
   - Case-insensitive: `webp`, `WEBP`, and `WebP` are all valid
+- `--keep-filenames`: Preserve each page's original base filename in the output CBZ (with the extension swapped for format conversion) instead of renumbering pages to `0000`, `0001`, ... Default is false. When two source pages share the same base filename, the second one falls back to the indexed form so the output stays a valid zip.
 - `--timeout`, `-t`: Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout. Default is 0.
 - `--backfill`: *(`watch` only)* Optimize CBZ/CBR files that already exist in the watched folder at startup, before watching for new changes. Default is false.
 - `--log`, `-l`: Set log level; can be 'panic', 'fatal', 'error', 'warn', 'info', 'debug', or 'trace'. Default is info.

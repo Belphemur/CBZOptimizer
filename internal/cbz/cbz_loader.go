@@ -142,7 +142,13 @@ func IsAlreadyConverted(ctx context.Context, filePath string) (converted bool, e
 // ExtractChapter extracts an archive (CBZ/CBR) to a temp directory on disk.
 // Pages are streamed directly to files — no image data is held in memory.
 // Returns a Chapter with PageFile entries pointing to extracted files.
-func ExtractChapter(ctx context.Context, filePath string) (*manga.Chapter, error) {
+//
+// When keepFilenames is true, each PageFile has its OriginalName set to the
+// base filename of the entry inside the archive. Downstream code uses that
+// name to preserve the original page identity in the output CBZ (with the
+// extension swapped for format conversion). When false, OriginalName stays
+// empty and the sequential %04d naming convention is used instead.
+func ExtractChapter(ctx context.Context, filePath string, keepFilenames bool) (*manga.Chapter, error) {
 	log.Debug().Str("file_path", filePath).Msg("Extracting chapter to disk")
 
 	// Create temp directory for extraction
@@ -279,6 +285,9 @@ func ExtractChapter(ctx context.Context, filePath string) (*manga.Chapter, error
 			Extension: ext,
 			FilePath:  outputPath,
 		}
+		if keepFilenames {
+			page.OriginalName = filepath.Base(path)
+		}
 		chapter.Pages = append(chapter.Pages, page)
 
 		log.Debug().
@@ -320,8 +329,9 @@ func isJunkFile(path string) bool {
 }
 
 // LoadChapter extracts the chapter from a CBZ/CBR file to disk.
-// It delegates to ExtractChapter and always extracts all pages.
-// Use IsAlreadyConverted for a fast conversion status check without extraction.
+// It delegates to ExtractChapter with keepFilenames=false and always
+// extracts all pages. Use IsAlreadyConverted for a fast conversion status
+// check without extraction.
 func LoadChapter(filePath string) (*manga.Chapter, error) {
-	return ExtractChapter(context.Background(), filePath)
+	return ExtractChapter(context.Background(), filePath, false)
 }

@@ -21,7 +21,12 @@ type OptimizeOptions struct {
 	Quality          uint8
 	Override         bool
 	Split            bool
-	Timeout          time.Duration
+	// KeepFilenames preserves the original base filename of each page inside
+	// the output CBZ (with the extension swapped for format conversion)
+	// instead of the historical %04d sequential naming. Off by default so
+	// existing behavior is unchanged.
+	KeepFilenames bool
+	Timeout       time.Duration
 }
 
 // Optimize optimizes a CBZ/CBR file using the specified converter.
@@ -38,6 +43,7 @@ func Optimize(options *OptimizeOptions) error {
 		Uint8("quality", options.Quality).
 		Bool("override", options.Override).
 		Bool("split", options.Split).
+		Bool("keep_filenames", options.KeepFilenames).
 		Msg("Optimization parameters")
 
 	// Step 1: Fast conversion check before extracting (new requirement)
@@ -64,7 +70,7 @@ func Optimize(options *OptimizeOptions) error {
 		extractCtx = context.Background()
 	}
 
-	chapter, err := cbz.ExtractChapter(extractCtx, options.Path)
+	chapter, err := cbz.ExtractChapter(extractCtx, options.Path, options.KeepFilenames)
 	if err != nil {
 		log.Error().Str("file", options.Path).Err(err).Msg("Failed to extract chapter")
 		return fmt.Errorf("failed to extract chapter: %w", err)

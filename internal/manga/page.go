@@ -13,4 +13,10 @@ type PageFile struct {
 	IsSplitted bool
 	// SplitPartIndex is the part index when the page was split.
 	SplitPartIndex uint16
+	// OriginalName is the base filename (e.g. "page01.png") of the page as
+	// it appeared in the source archive, recorded when the --keep-filenames
+	// flag is enabled. Empty when the flag is off or the source name is
+	// unknown. When set, downstream code uses this stem (with the final
+	// Extension swapped in) instead of the default %04d sequential name.
+	OriginalName string
 }

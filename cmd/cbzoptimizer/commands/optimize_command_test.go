@@ -86,6 +86,7 @@ func TestConvertCbzCommand(t *testing.T) {
 	cmd.Flags().IntP("parallelism", "n", 2, "Number of chapters to convert in parallel")
 	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
 	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
+	cmd.Flags().Bool("keep-filenames", false, "Preserve original page filenames instead of renumbering to sequential indices")
 	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter (e.g., 30s, 5m, 1h). 0 means no timeout")
 
 	// Execute the command
@@ -197,6 +198,7 @@ func setupTestCommand(t *testing.T) (*cobra.Command, func()) {
 	cmd.Flags().IntP("parallelism", "n", 1, "Number of chapters to convert in parallel")
 	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
 	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
+	cmd.Flags().Bool("keep-filenames", false, "Preserve original page filenames instead of renumbering to sequential indices")
 	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
 
 	// Reset converterType to default before test for consistency
@@ -433,6 +435,7 @@ func TestConvertCbzCommand_ManyFiles_NoDeadlock(t *testing.T) {
 	cmd.Flags().IntP("parallelism", "n", 2, "Number of chapters to convert in parallel")
 	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
 	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
+	cmd.Flags().Bool("keep-filenames", false, "Preserve original page filenames instead of renumbering to sequential indices")
 	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
 
 	converterType = constant.DefaultConversion
@@ -535,6 +538,7 @@ func TestConvertCbzCommand_HighParallelism_NoDeadlock(t *testing.T) {
 	cmd.Flags().IntP("parallelism", "n", 8, "Number of chapters to convert in parallel")
 	cmd.Flags().BoolP("override", "o", false, "Override the original CBZ/CBR files")
 	cmd.Flags().BoolP("split", "s", false, "Split long pages into smaller chunks")
+	cmd.Flags().Bool("keep-filenames", false, "Preserve original page filenames instead of renumbering to sequential indices")
 	cmd.Flags().DurationP("timeout", "t", 0, "Maximum time allowed for converting a single chapter")
 
 	converterType = constant.DefaultConversion
