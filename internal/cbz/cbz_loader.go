@@ -298,7 +298,7 @@ func ExtractChapter(ctx context.Context, filePath string, keepFilenames bool) (*
 			FilePath:  outputPath,
 		}
 		if keepFilenames {
-			page.OriginalName = allocateUniqueBaseName(filepath.Base(path), pageIndex, usedOriginalNames)
+			page.OriginalName = allocateUniqueBaseName(archiveBaseName(path), pageIndex, usedOriginalNames)
 		}
 		chapter.Pages = append(chapter.Pages, page)
 
@@ -338,6 +338,29 @@ func isJunkFile(path string) bool {
 		return true
 	}
 	return false
+}
+
+// archiveBaseName returns the bare base name of an archive entry, with
+// Windows-style backslash separators normalized to forward slashes before
+// the last-segment split. The archives library surfaces zip entry names
+// verbatim, so a name like "..\evil.png" (common from Windows-created
+// archives) would otherwise pass through filepath.Base unchanged on non-
+// Windows hosts and be written into the output CBZ as a path-traversal
+// shape. Normalizing the separators first and then taking the segment
+// after the final one guarantees the returned name is a bare base name
+// with no directory components, no backslashes, and no forward slashes —
+// which is what the downstream writer expects as a safe ZIP entry name.
+//
+// This intentionally does NOT touch filepath.Base calls in isJunkFile or
+// the ComicInfo.xml / converted.txt detection: those comparisons just
+// fail to match, and the entry then falls through to the non-image
+// extension filter, so no traversal-shaped data escapes the loader.
+func archiveBaseName(path string) string {
+	normalized := strings.ReplaceAll(path, "\\", "/")
+	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
+		return normalized[idx+1:]
+	}
+	return normalized
 }
 
 // allocateUniqueBaseName returns baseName when it is not already taken by an

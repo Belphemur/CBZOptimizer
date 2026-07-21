@@ -281,6 +281,64 @@ func TestExtractChapter_KeepFilenames_DeduplicatesCollidingNames(t *testing.T) {
 	})
 }
 
+// writeBackslashCBZ builds a CBZ whose entry names mix Windows-style
+// backslash separators with a normal forward-slash page. The fixture
+// reproduces the CodeRabbit finding for PR #217: archive entries like
+// "subdir\page.png" and "..\evil.png" must not surface verbatim as the
+// OriginalName written into the output CBZ, since Windows ZIP consumers
+// can interpret backslashes as path traversal.
+func writeBackslashCBZ(t *testing.T, dir string) string {
+	t.Helper()
+	cbzPath := filepath.Join(dir, "backslash.cbz")
+	f, err := os.Create(cbzPath)
+	require.NoError(t, err)
+	w := zip.NewWriter(f)
+
+	// archive/zip stores entry names verbatim, so the bytes on the wire
+	// carry the backslashes through to fs.WalkDir in ExtractChapter.
+	for _, entry := range []string{`subdir\page.png`, `..\evil.png`, "cover.png"} {
+		fw, err := w.Create(entry)
+		require.NoError(t, err)
+		_, err = fw.Write([]byte("dummy image bytes for " + entry))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Close())
+	require.NoError(t, f.Close())
+	return cbzPath
+}
+
+func TestExtractChapter_KeepFilenames_NormalizesWindowsSeparators(t *testing.T) {
+	tmpDir := t.TempDir()
+	cbzPath := writeBackslashCBZ(t, tmpDir)
+
+	chapter, err := ExtractChapter(context.Background(), cbzPath, true)
+	require.NoError(t, err)
+	defer func() { _ = chapter.Cleanup() }()
+
+	require.Len(t, chapter.Pages, 3, "expected 3 pages: two backslash entries + one normal")
+
+	// Every OriginalName must be a bare base name: no backslashes, no
+	// forward slashes, and unique across the chapter.
+	seen := make(map[string]struct{}, len(chapter.Pages))
+	for _, page := range chapter.Pages {
+		assert.NotEmpty(t, page.OriginalName, "page %d must have OriginalName set", page.Index)
+		assert.NotContains(t, page.OriginalName, `\`, "page %d OriginalName must not contain backslash, got %q", page.Index, page.OriginalName)
+		assert.NotContains(t, page.OriginalName, "/", "page %d OriginalName must not contain forward slash, got %q", page.Index, page.OriginalName)
+		assert.Equal(t, filepath.Base(page.OriginalName), page.OriginalName,
+			"page %d OriginalName should be a bare base filename", page.Index)
+		if _, dup := seen[page.OriginalName]; dup {
+			t.Errorf("duplicate OriginalName across pages: %q", page.OriginalName)
+		}
+		seen[page.OriginalName] = struct{}{}
+	}
+
+	// The two backslash entries must collapse to their bare bases; the
+	// "..\evil.png" entry's leading "..\evil" must not be carried through.
+	assert.Contains(t, seen, "page.png", "subdir\\page.png should normalize to bare page.png")
+	assert.Contains(t, seen, "evil.png", "..\\evil.png should normalize to bare evil.png")
+	assert.Contains(t, seen, "cover.png", "cover.png should pass through unchanged")
+}
+
 func TestExtractChapter_Cleanup(t *testing.T) {
 	chapter, err := ExtractChapter(context.Background(), "../../testdata/Chapter 128.cbz", false)
 	require.NoError(t, err)
