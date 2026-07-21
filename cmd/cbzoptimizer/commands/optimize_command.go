@@ -24,10 +24,10 @@ func init() {
 		RunE:  ConvertCbzCommand,
 		Args:  cobra.ExactArgs(1),
 	}
-	
+
 	// Setup common flags (format, quality, override, split, timeout)
 	setupCommonFlags(command, &converterType, 85, false, false, false)
-	
+
 	// Setup optimize-specific flags
 	command.Flags().IntP("parallelism", "n", 2, "Number of chapters to convert in parallel")
 
@@ -128,15 +128,15 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 			log.Debug().Int("worker_id", workerID).Msg("Worker started")
 			for path := range fileChan {
 				log.Debug().Int("worker_id", workerID).Str("file_path", path).Msg("Worker processing file")
-			err := utils2.Optimize(&utils2.OptimizeOptions{
-				ChapterConverter: chapterConverter,
-				Path:             path,
-				Quality:          quality,
-				Override:         override,
-				Split:            split,
-				KeepFilenames:    keepFilenames,
-				Timeout:          timeout,
-			})
+				err := utils2.Optimize(&utils2.OptimizeOptions{
+					ChapterConverter: chapterConverter,
+					Path:             path,
+					Quality:          quality,
+					Override:         override,
+					Split:            split,
+					KeepFilenames:    keepFilenames,
+					Timeout:          timeout,
+				})
 				if err != nil {
 					log.Error().Int("worker_id", workerID).Str("file_path", path).Err(err).Msg("Worker encountered error")
 					errMutex.Lock()

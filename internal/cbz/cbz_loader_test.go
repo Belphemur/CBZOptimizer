@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -198,6 +199,84 @@ func TestExtractChapter_PagesHaveSequentialIndices(t *testing.T) {
 			// when the source archive nests pages in subdirectories.
 			assert.Equal(t, filepath.Base(page.OriginalName), page.OriginalName,
 				"OriginalName should be a base filename with no path components")
+		}
+	})
+}
+
+// writeCollisionCBZ builds a CBZ containing the same image base name in two
+// different subdirectories plus a normal unique page. The test fixture is
+// specifically crafted to reproduce the race fixed in ExtractChapter: when
+// keep-filenames naively copied filepath.Base(path) into OriginalName, both
+// a/page.png and b/page.png would have ended up with the same stem and the
+// WebP converter would have raced on a single shared intermediate path.
+func writeCollisionCBZ(t *testing.T, dir string) string {
+	t.Helper()
+	cbzPath := filepath.Join(dir, "collisions.cbz")
+	f, err := os.Create(cbzPath)
+	require.NoError(t, err)
+	w := zip.NewWriter(f)
+
+	for _, entry := range []string{"a/page.png", "b/page.png", "cover.png"} {
+		fw, err := w.Create(entry)
+		require.NoError(t, err)
+		_, err = fw.Write([]byte("dummy image bytes for " + entry))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Close())
+	require.NoError(t, f.Close())
+	return cbzPath
+}
+
+func TestExtractChapter_KeepFilenames_DeduplicatesCollidingNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	cbzPath := writeCollisionCBZ(t, tmpDir)
+
+	t.Run("keep-filenames resolves colliding base names", func(t *testing.T) {
+		chapter, err := ExtractChapter(context.Background(), cbzPath, true)
+		require.NoError(t, err)
+		defer func() { _ = chapter.Cleanup() }()
+
+		require.Len(t, chapter.Pages, 3, "expected 3 pages: two colliding + one unique")
+
+		// All OriginalNames must be non-empty bare base names and unique.
+		seen := make(map[string]struct{}, len(chapter.Pages))
+		for _, page := range chapter.Pages {
+			assert.NotEmpty(t, page.OriginalName, "page %d must have OriginalName set", page.Index)
+			assert.Equal(t, filepath.Base(page.OriginalName), page.OriginalName,
+				"page %d OriginalName should be a bare base filename", page.Index)
+			if _, dup := seen[page.OriginalName]; dup {
+				t.Errorf("duplicate OriginalName across pages: %q", page.OriginalName)
+			}
+			seen[page.OriginalName] = struct{}{}
+		}
+
+		// The unique page keeps its original name; the two colliding pages
+		// must come out as one bare "page.png" and one indexed variant.
+		assert.Contains(t, seen, "page.png", "one colliding page should keep the bare page.png name")
+		assert.Contains(t, seen, "cover.png", "the unique page should keep its original name")
+
+		indexedPattern := regexp.MustCompile(`^page_\d{4}\.png$`)
+		indexedCount := 0
+		for name := range seen {
+			if indexedPattern.MatchString(name) {
+				indexedCount++
+			}
+		}
+		assert.Equal(t, 1, indexedCount,
+			"exactly one colliding page should be resolved to the page_NNNN.png pattern, got %v", seen)
+	})
+
+	t.Run("keep-filenames off leaves OriginalName empty (regression guard)", func(t *testing.T) {
+		// Same collision-prone archive, but with keep-filenames off: the
+		// dedup logic must not run, so OriginalName stays empty for every
+		// page. This is the historical default and must not regress.
+		chapter, err := ExtractChapter(context.Background(), cbzPath, false)
+		require.NoError(t, err)
+		defer func() { _ = chapter.Cleanup() }()
+
+		require.Len(t, chapter.Pages, 3)
+		for _, page := range chapter.Pages {
+			assert.Empty(t, page.OriginalName, "page %d must have empty OriginalName when keep-filenames is off", page.Index)
 		}
 	})
 }

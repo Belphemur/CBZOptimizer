@@ -251,11 +251,13 @@ func (converter *Converter) convertPageFile(ctx context.Context, page *manga.Pag
 	err := EncodeFile(page.FilePath, outputPath, uint(quality))
 
 	if err == nil {
-		// Success! No image decoding needed.
+		// Success! No image decoding needed. Preserve OriginalName so
+		// --keep-filenames carries through to the final zip entry name.
 		return []*manga.PageFile{{
-			Index:     page.Index,
-			Extension: ".webp",
-			FilePath:  outputPath,
+			Index:        page.Index,
+			Extension:    ".webp",
+			FilePath:     outputPath,
+			OriginalName: page.OriginalName,
 		}}, nil
 	}
 
@@ -356,6 +358,7 @@ func (converter *Converter) splitAndConvert(ctx context.Context, page *manga.Pag
 			FilePath:       outputPath,
 			IsSplitted:     true,
 			SplitPartIndex: uint16(i),
+			OriginalName:   page.OriginalName,
 		})
 	}
 

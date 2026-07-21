@@ -42,9 +42,16 @@ func resolvePageName(page *manga.PageFile, usedNames map[string]struct{}) string
 		}
 		// Collision: fall back to the indexed form so the entry still gets
 		// written, but make it visibly distinct from the preserved one.
-		fallback := fmt.Sprintf("%s_%04d%s", stem, page.Index, page.Extension)
-		usedNames[fallback] = struct{}{}
-		return fallback
+		// Loop in case the fallback name is itself already taken (e.g. a
+		// source file literally named "cover_0001.png" colliding with a
+		// page-index 1 fallback "cover_0001.webp").
+		for suffix := page.Index; ; suffix++ {
+			fallback := fmt.Sprintf("%s_%04d%s", stem, suffix, page.Extension)
+			if _, taken := usedNames[fallback]; !taken {
+				usedNames[fallback] = struct{}{}
+				return fallback
+			}
+		}
 	}
 
 	if page.IsSplitted {
