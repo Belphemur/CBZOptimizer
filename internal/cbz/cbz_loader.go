@@ -142,7 +142,13 @@ func IsAlreadyConverted(ctx context.Context, filePath string) (converted bool, e
 // ExtractChapter extracts an archive (CBZ/CBR) to a temp directory on disk.
 // Pages are streamed directly to files — no image data is held in memory.
 // Returns a Chapter with PageFile entries pointing to extracted files.
-func ExtractChapter(ctx context.Context, filePath string) (*manga.Chapter, error) {
+//
+// When keepFilenames is true, each PageFile has its OriginalName set to the
+// base filename of the entry inside the archive. Downstream code uses that
+// name to preserve the original page identity in the output CBZ (with the
+// extension swapped for format conversion). When false, OriginalName stays
+// empty and the sequential %04d naming convention is used instead.
+func ExtractChapter(ctx context.Context, filePath string, keepFilenames bool) (*manga.Chapter, error) {
 	log.Debug().Str("file_path", filePath).Msg("Extracting chapter to disk")
 
 	// Create temp directory for extraction
@@ -160,6 +166,22 @@ func ExtractChapter(ctx context.Context, filePath string) (*manga.Chapter, error
 	chapter := &manga.Chapter{
 		FilePath: filePath,
 		TempDir:  tempDir,
+	}
+
+	// usedOriginalStems tracks the STEM (filename without extension) of every
+	// OriginalName handed out in this chapter so stems stay unique across
+	// pages. Tracking stems (not full names) prevents a downstream race in
+	// pkg/converter/webp: the converter strips the OriginalName extension
+	// and appends a target-format suffix (e.g. ".webp"), so two pages that
+	// share a stem but differ in extension — e.g. a/page.png and b/page.jpg
+	// (legal in zip) — would otherwise race on a single shared intermediate
+	// output path. The map covers both same-stem-same-ext collisions (e.g.
+	// a/page.png + b/page.png) and same-stem-different-ext collisions (e.g.
+	// a/page.png + b/page.jpg). Allocated lazily so the keepFilenames=false
+	// path stays allocation-free.
+	var usedOriginalStems map[string]struct{}
+	if keepFilenames {
+		usedOriginalStems = make(map[string]struct{})
 	}
 
 	// For CBZ files, read metadata from zip comment
@@ -279,6 +301,9 @@ func ExtractChapter(ctx context.Context, filePath string) (*manga.Chapter, error
 			Extension: ext,
 			FilePath:  outputPath,
 		}
+		if keepFilenames {
+			page.OriginalName = allocateUniqueBaseName(archiveBaseName(path), pageIndex, usedOriginalStems)
+		}
 		chapter.Pages = append(chapter.Pages, page)
 
 		log.Debug().
@@ -319,9 +344,76 @@ func isJunkFile(path string) bool {
 	return false
 }
 
+// archiveBaseName returns the bare base name of an archive entry, with
+// Windows-style backslash separators normalized to forward slashes before
+// the last-segment split. The archives library surfaces zip entry names
+// verbatim, so a name like "..\evil.png" (common from Windows-created
+// archives) would otherwise pass through filepath.Base unchanged on non-
+// Windows hosts and be written into the output CBZ as a path-traversal
+// shape. Normalizing the separators first and then taking the segment
+// after the final one guarantees the returned name is a bare base name
+// with no directory components, no backslashes, and no forward slashes —
+// which is what the downstream writer expects as a safe ZIP entry name.
+//
+// This intentionally does NOT touch filepath.Base calls in isJunkFile or
+// the ComicInfo.xml / converted.txt detection: those comparisons just
+// fail to match, and the entry then falls through to the non-image
+// extension filter, so no traversal-shaped data escapes the loader.
+func archiveBaseName(path string) string {
+	normalized := strings.ReplaceAll(path, "\\", "/")
+	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
+		return normalized[idx+1:]
+	}
+	return normalized
+}
+
+// allocateUniqueBaseName returns baseName when its stem is not already taken
+// by an earlier page in this chapter, or a collision-resolved variant
+// otherwise.
+//
+// Stem-uniqueness contract: the function guarantees that the STEM
+// (filename without extension) of the returned OriginalName is unique
+// among all names previously handed out from this chapter. That contract
+// matches what downstream code relies on —
+// pkg/converter/webp.intermediatePageName strips the OriginalName's
+// extension and appends a target-format suffix (e.g. ".webp"), so two
+// OriginalNames that share a stem would otherwise race on a single
+// intermediate output path. The stem is computed the same way downstream
+// does it (strings.TrimSuffix(name, filepath.Ext(name))) to keep both
+// definitions in lock-step.
+//
+// On collision the resolved name matches the existing fallback style used
+// by cbz_creator's resolvePageName: stem + "_%04d" + extension. The loop
+// checks the CANDIDATE's stem (not the full generated name) so two files
+// that share a stem but differ in extension — e.g. "page.png" and
+// "page.jpg" — resolve to, e.g., "page.png" and "page_0001.jpg", each
+// preserving its original extension. The starting suffix is pageIndex so
+// the resolved name stays in the same neighborhood as the page's archive
+// position. If the candidate's stem is itself already taken
+// (astronomically rare: the source archive would need both the original
+// name and a matching indexed name), the suffix is incremented until a
+// free stem is found. The chosen name's stem is recorded in usedStems so
+// subsequent calls cannot pick it again.
+func allocateUniqueBaseName(baseName string, pageIndex uint16, usedStems map[string]struct{}) string {
+	ext := filepath.Ext(baseName)
+	stem := strings.TrimSuffix(baseName, ext)
+	if _, taken := usedStems[stem]; !taken {
+		usedStems[stem] = struct{}{}
+		return baseName
+	}
+	for suffix := int(pageIndex); ; suffix++ {
+		candidateStem := fmt.Sprintf("%s_%04d", stem, suffix)
+		if _, taken := usedStems[candidateStem]; !taken {
+			usedStems[candidateStem] = struct{}{}
+			return candidateStem + ext
+		}
+	}
+}
+
 // LoadChapter extracts the chapter from a CBZ/CBR file to disk.
-// It delegates to ExtractChapter and always extracts all pages.
-// Use IsAlreadyConverted for a fast conversion status check without extraction.
+// It delegates to ExtractChapter with keepFilenames=false and always
+// extracts all pages. Use IsAlreadyConverted for a fast conversion status
+// check without extraction.
 func LoadChapter(filePath string) (*manga.Chapter, error) {
-	return ExtractChapter(context.Background(), filePath)
+	return ExtractChapter(context.Background(), filePath, false)
 }

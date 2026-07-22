@@ -25,6 +25,26 @@ import (
 
 const webpMaxHeight = 16383
 
+// intermediatePageName returns the on-disk filename used for a page's WebP
+// intermediate during conversion. When the page carries an OriginalName
+// (recorded by --keep-filenames), its stem is reused so the temp file line
+// up with the name the archive writer will pick. Otherwise the historical
+// %04d indexed naming is kept. The splitSuffix argument is appended verbatim
+// after the stem (e.g. "-00", "-01") for split parts and is empty for the
+// happy-path single output. A leading dash is only added when both the
+// split suffix and the original-name stem are present, so the indexed form
+// stays as %04d-%02d.
+func intermediatePageName(page *manga.PageFile, splitSuffix string) string {
+	if page.OriginalName != "" {
+		stem := strings.TrimSuffix(page.OriginalName, filepath.Ext(page.OriginalName))
+		return stem + splitSuffix + ".webp"
+	}
+	if splitSuffix == "" {
+		return fmt.Sprintf("%04d.webp", page.Index)
+	}
+	return fmt.Sprintf("%04d%s.webp", page.Index, splitSuffix)
+}
+
 type Converter struct {
 	maxHeight  int
 	cropHeight int
@@ -218,22 +238,26 @@ func (converter *Converter) convertPageFile(ctx context.Context, page *manga.Pag
 		Str("input", page.FilePath).
 		Msg("Converting page file")
 
-	// If the page is already WebP, just return it as-is
+	// If the page is already WebP, just return it as-is. The returned page
+	// keeps any OriginalName set during extraction so the archive writer can
+	// honor --keep-filenames for the final entry name.
 	if strings.ToLower(page.Extension) == ".webp" {
 		log.Debug().Uint16("page_index", page.Index).Msg("Page already WebP, skipping")
 		return []*manga.PageFile{page}, nil
 	}
 
 	// Try direct file-to-file conversion first (happy path — no memory allocation)
-	outputPath := filepath.Join(outputDir, fmt.Sprintf("%04d.webp", page.Index))
+	outputPath := filepath.Join(outputDir, intermediatePageName(page, ""))
 	err := EncodeFile(page.FilePath, outputPath, uint(quality))
 
 	if err == nil {
-		// Success! No image decoding needed.
+		// Success! No image decoding needed. Preserve OriginalName so
+		// --keep-filenames carries through to the final zip entry name.
 		return []*manga.PageFile{{
-			Index:     page.Index,
-			Extension: ".webp",
-			FilePath:  outputPath,
+			Index:        page.Index,
+			Extension:    ".webp",
+			FilePath:     outputPath,
+			OriginalName: page.OriginalName,
 		}}, nil
 	}
 
@@ -316,7 +340,7 @@ func (converter *Converter) splitAndConvert(ctx context.Context, page *manga.Pag
 			partHeight = height - yOffset
 		}
 
-		outputPath := filepath.Join(outputDir, fmt.Sprintf("%04d-%02d.webp", page.Index, i))
+		outputPath := filepath.Join(outputDir, intermediatePageName(page, fmt.Sprintf("-%02d", i)))
 		err := EncodeFileWithCrop(page.FilePath, outputPath, uint(quality), 0, yOffset, width, partHeight)
 
 		if err != nil {
@@ -334,6 +358,7 @@ func (converter *Converter) splitAndConvert(ctx context.Context, page *manga.Pag
 			FilePath:       outputPath,
 			IsSplitted:     true,
 			SplitPartIndex: uint16(i),
+			OriginalName:   page.OriginalName,
 		})
 	}
 

@@ -24,10 +24,10 @@ func init() {
 		RunE:  ConvertCbzCommand,
 		Args:  cobra.ExactArgs(1),
 	}
-	
+
 	// Setup common flags (format, quality, override, split, timeout)
 	setupCommonFlags(command, &converterType, 85, false, false, false)
-	
+
 	// Setup optimize-specific flags
 	command.Flags().IntP("parallelism", "n", 2, "Number of chapters to convert in parallel")
 
@@ -72,6 +72,13 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid split value")
 	}
 	log.Debug().Bool("split", split).Msg("Split parameter parsed")
+
+	keepFilenames, err := cmd.Flags().GetBool("keep-filenames")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse keep-filenames flag")
+		return fmt.Errorf("invalid keep-filenames value")
+	}
+	log.Debug().Bool("keep-filenames", keepFilenames).Msg("Keep-filenames parameter parsed")
 
 	timeout, err := cmd.Flags().GetDuration("timeout")
 	if err != nil {
@@ -127,6 +134,7 @@ func ConvertCbzCommand(cmd *cobra.Command, args []string) error {
 					Quality:          quality,
 					Override:         override,
 					Split:            split,
+					KeepFilenames:    keepFilenames,
 					Timeout:          timeout,
 				})
 				if err != nil {

@@ -485,3 +485,36 @@ func TestEncodeFileWithCrop(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, info.Size(), int64(0))
 }
+
+// TestIntermediatePageName_StemsAreUnique pins the contract that
+// intermediatePageName must produce a different on-disk filename for two
+// pages whose OriginalNames share a stem via the original archive entry
+// name. ExtractChapter guarantees stem-unique OriginalNames per chapter
+// (so, e.g., a/page.png and b/page.jpg come out as "page.png" and
+// "page_0001.jpg"), and the converter must reflect that: stripping the
+// extension and appending ".webp" must not collapse two distinct stems
+// onto the same intermediate path.
+func TestIntermediatePageName_StemsAreUnique(t *testing.T) {
+	tests := []struct {
+		name         string
+		originalName string
+		splitSuffix  string
+	}{
+		{name: "bare stem", originalName: "page.png", splitSuffix: ""},
+		{name: "indexed stem (post-fix)", originalName: "page_0001.jpg", splitSuffix: ""},
+		{name: "bare stem + split suffix", originalName: "page.png", splitSuffix: "-00"},
+		{name: "indexed stem + split suffix", originalName: "page_0001.jpg", splitSuffix: "-00"},
+	}
+
+	names := make(map[string]struct{}, len(tests))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page := &manga.PageFile{Index: 0, OriginalName: tt.originalName}
+			got := intermediatePageName(page, tt.splitSuffix)
+			if _, dup := names[got]; dup {
+				t.Errorf("intermediate name %q collides with an earlier page's intermediate name", got)
+			}
+			names[got] = struct{}{}
+		})
+	}
+}

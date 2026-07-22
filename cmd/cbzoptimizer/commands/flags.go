@@ -70,6 +70,19 @@ func setupSplitFlag(cmd *cobra.Command, defaultValue bool, bindViper bool) {
 	}
 }
 
+// setupKeepFilenamesFlag sets up the keep-filenames flag for a command.
+//
+// Parameters:
+//   - cmd: The Cobra command to add the keep-filenames flag to
+//   - defaultValue: The default keep-filenames value
+//   - bindViper: If true, binds the flag to viper for configuration file support
+func setupKeepFilenamesFlag(cmd *cobra.Command, defaultValue bool, bindViper bool) {
+	cmd.Flags().Bool("keep-filenames", defaultValue, "Preserve original page filenames instead of renumbering to sequential indices")
+	if bindViper {
+		_ = viper.BindPFlag("keep-filenames", cmd.Flags().Lookup("keep-filenames"))
+	}
+}
+
 // setupTimeoutFlag sets up the timeout flag for a command.
 //
 // Parameters:
@@ -96,5 +109,6 @@ func setupCommonFlags(cmd *cobra.Command, converterType *constant.ConversionForm
 	setupQualityFlag(cmd, qualityDefault, bindViper)
 	setupOverrideFlag(cmd, overrideDefault, bindViper)
 	setupSplitFlag(cmd, splitDefault, bindViper)
+	setupKeepFilenamesFlag(cmd, false, bindViper)
 	setupTimeoutFlag(cmd, bindViper)
 }
