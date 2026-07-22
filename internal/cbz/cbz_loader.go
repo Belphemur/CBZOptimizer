@@ -168,16 +168,20 @@ func ExtractChapter(ctx context.Context, filePath string, keepFilenames bool) (*
 		TempDir:  tempDir,
 	}
 
-	// usedOriginalNames tracks every OriginalName handed out in this chapter
-	// so it stays unique across pages, even when the source archive contains
-	// the same base filename in different subdirectories (e.g. vol1/page.png
-	// and vol2/page.png — legal in zip). Uniqueness at the extraction
-	// boundary prevents a downstream race in pkg/converter/webp, where two
-	// pages with the same stem would write the same intermediate file.
-	// Allocated lazily so the keepFilenames=false path stays allocation-free.
-	var usedOriginalNames map[string]struct{}
+	// usedOriginalStems tracks the STEM (filename without extension) of every
+	// OriginalName handed out in this chapter so stems stay unique across
+	// pages. Tracking stems (not full names) prevents a downstream race in
+	// pkg/converter/webp: the converter strips the OriginalName extension
+	// and appends a target-format suffix (e.g. ".webp"), so two pages that
+	// share a stem but differ in extension — e.g. a/page.png and b/page.jpg
+	// (legal in zip) — would otherwise race on a single shared intermediate
+	// output path. The map covers both same-stem-same-ext collisions (e.g.
+	// a/page.png + b/page.png) and same-stem-different-ext collisions (e.g.
+	// a/page.png + b/page.jpg). Allocated lazily so the keepFilenames=false
+	// path stays allocation-free.
+	var usedOriginalStems map[string]struct{}
 	if keepFilenames {
-		usedOriginalNames = make(map[string]struct{})
+		usedOriginalStems = make(map[string]struct{})
 	}
 
 	// For CBZ files, read metadata from zip comment
@@ -298,7 +302,7 @@ func ExtractChapter(ctx context.Context, filePath string, keepFilenames bool) (*
 			FilePath:  outputPath,
 		}
 		if keepFilenames {
-			page.OriginalName = allocateUniqueBaseName(archiveBaseName(path), pageIndex, usedOriginalNames)
+			page.OriginalName = allocateUniqueBaseName(archiveBaseName(path), pageIndex, usedOriginalStems)
 		}
 		chapter.Pages = append(chapter.Pages, page)
 
@@ -363,29 +367,45 @@ func archiveBaseName(path string) string {
 	return normalized
 }
 
-// allocateUniqueBaseName returns baseName when it is not already taken by an
-// earlier page in this chapter, or a collision-resolved variant otherwise.
+// allocateUniqueBaseName returns baseName when its stem is not already taken
+// by an earlier page in this chapter, or a collision-resolved variant
+// otherwise.
 //
-// On collision the resolved name matches the existing fallback style used by
-// cbz_creator's resolvePageName: stem + "_%04d" + extension. The starting
-// suffix is pageIndex so the resolved name stays in the same neighborhood as
-// the page's archive position. If that candidate is itself already taken
-// (astronomically rare: the source archive would need both the original name
-// and a matching indexed name), the suffix is incremented until a free name
-// is found. The chosen name is recorded in usedNames so subsequent calls
-// cannot pick it again.
-func allocateUniqueBaseName(baseName string, pageIndex uint16, usedNames map[string]struct{}) string {
-	if _, taken := usedNames[baseName]; !taken {
-		usedNames[baseName] = struct{}{}
-		return baseName
-	}
+// Stem-uniqueness contract: the function guarantees that the STEM
+// (filename without extension) of the returned OriginalName is unique
+// among all names previously handed out from this chapter. That contract
+// matches what downstream code relies on —
+// pkg/converter/webp.intermediatePageName strips the OriginalName's
+// extension and appends a target-format suffix (e.g. ".webp"), so two
+// OriginalNames that share a stem would otherwise race on a single
+// intermediate output path. The stem is computed the same way downstream
+// does it (strings.TrimSuffix(name, filepath.Ext(name))) to keep both
+// definitions in lock-step.
+//
+// On collision the resolved name matches the existing fallback style used
+// by cbz_creator's resolvePageName: stem + "_%04d" + extension. The loop
+// checks the CANDIDATE's stem (not the full generated name) so two files
+// that share a stem but differ in extension — e.g. "page.png" and
+// "page.jpg" — resolve to, e.g., "page.png" and "page_0001.jpg", each
+// preserving its original extension. The starting suffix is pageIndex so
+// the resolved name stays in the same neighborhood as the page's archive
+// position. If the candidate's stem is itself already taken
+// (astronomically rare: the source archive would need both the original
+// name and a matching indexed name), the suffix is incremented until a
+// free stem is found. The chosen name's stem is recorded in usedStems so
+// subsequent calls cannot pick it again.
+func allocateUniqueBaseName(baseName string, pageIndex uint16, usedStems map[string]struct{}) string {
 	ext := filepath.Ext(baseName)
 	stem := strings.TrimSuffix(baseName, ext)
+	if _, taken := usedStems[stem]; !taken {
+		usedStems[stem] = struct{}{}
+		return baseName
+	}
 	for suffix := int(pageIndex); ; suffix++ {
-		candidate := fmt.Sprintf("%s_%04d%s", stem, suffix, ext)
-		if _, taken := usedNames[candidate]; !taken {
-			usedNames[candidate] = struct{}{}
-			return candidate
+		candidateStem := fmt.Sprintf("%s_%04d", stem, suffix)
+		if _, taken := usedStems[candidateStem]; !taken {
+			usedStems[candidateStem] = struct{}{}
+			return candidateStem + ext
 		}
 	}
 }

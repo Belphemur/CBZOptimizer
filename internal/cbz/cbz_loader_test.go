@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -337,6 +338,94 @@ func TestExtractChapter_KeepFilenames_NormalizesWindowsSeparators(t *testing.T) 
 	assert.Contains(t, seen, "page.png", "subdir\\page.png should normalize to bare page.png")
 	assert.Contains(t, seen, "evil.png", "..\\evil.png should normalize to bare evil.png")
 	assert.Contains(t, seen, "cover.png", "cover.png should pass through unchanged")
+}
+
+// writeSameStemDifferentExtCBZ builds a CBZ containing two same-stem pages
+// with different extensions plus a distinct unique page. The fixture
+// reproduces the CodeRabbit finding for PR #217: a/page.png and b/page.jpg
+// share a stem but do NOT share a full filename, so naive full-name
+// deduplication lets both OriginalNames through and the WebP converter then
+// races on a single shared intermediate output path (outputDir/page.webp).
+// The fix flips the dedup tracking to STEM-uniqueness, so one of the
+// colliding pair must come out as a bare "page.<ext>" and the other as
+// "page_NNNN.<ext>" — each preserving its original extension.
+func writeSameStemDifferentExtCBZ(t *testing.T, dir string) string {
+	t.Helper()
+	cbzPath := filepath.Join(dir, "same_stem.cbz")
+	f, err := os.Create(cbzPath)
+	require.NoError(t, err)
+	w := zip.NewWriter(f)
+
+	for _, entry := range []string{"a/page.png", "b/page.jpg", "cover.png"} {
+		fw, err := w.Create(entry)
+		require.NoError(t, err)
+		_, err = fw.Write([]byte("dummy image bytes for " + entry))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Close())
+	require.NoError(t, f.Close())
+	return cbzPath
+}
+
+func TestExtractChapter_KeepFilenames_DeduplicatesSameStemDifferentExtensions(t *testing.T) {
+	tmpDir := t.TempDir()
+	cbzPath := writeSameStemDifferentExtCBZ(t, tmpDir)
+
+	chapter, err := ExtractChapter(context.Background(), cbzPath, true)
+	require.NoError(t, err)
+	defer func() { _ = chapter.Cleanup() }()
+
+	require.Len(t, chapter.Pages, 3, "expected 3 pages: two same-stem + one unique")
+
+	// Every OriginalName must be a bare base name; full names AND stems
+	// must each be unique across the chapter. The stem-uniqueness check is
+	// the contract the WebP converter relies on (it strips the extension
+	// and appends ".webp" when computing intermediatePageName).
+	seenNames := make(map[string]struct{}, len(chapter.Pages))
+	seenStems := make(map[string]struct{}, len(chapter.Pages))
+	for _, page := range chapter.Pages {
+		assert.NotEmpty(t, page.OriginalName, "page %d must have OriginalName set", page.Index)
+		assert.Equal(t, filepath.Base(page.OriginalName), page.OriginalName,
+			"page %d OriginalName should be a bare base filename", page.Index)
+		if _, dup := seenNames[page.OriginalName]; dup {
+			t.Errorf("duplicate OriginalName full name across pages: %q", page.OriginalName)
+		}
+		seenNames[page.OriginalName] = struct{}{}
+
+		stem := strings.TrimSuffix(page.OriginalName, filepath.Ext(page.OriginalName))
+		if _, dup := seenStems[stem]; dup {
+			t.Errorf("duplicate OriginalName stem across pages: %q (from %q)", stem, page.OriginalName)
+		}
+		seenStems[stem] = struct{}{}
+	}
+
+	// The unique page keeps its original name untouched.
+	assert.Contains(t, seenNames, "cover.png", "the unique page should keep its original name")
+
+	// The colliding pair must split into one bare "page.<ext>" and one
+	// "page_NNNN.<ext>". The extensions must differ — each must keep the
+	// extension of the archive entry it came from. Walk order is not
+	// guaranteed, so the test checks both shapes regardless of which
+	// entry comes first.
+	barePattern := regexp.MustCompile(`^page\.(png|jpg)$`)
+	indexedPattern := regexp.MustCompile(`^page_\d{4}\.(png|jpg)$`)
+
+	var bareExt, indexedExt string
+	for name := range seenNames {
+		if barePattern.MatchString(name) {
+			bareExt = filepath.Ext(name)
+		}
+		if indexedPattern.MatchString(name) {
+			indexedExt = filepath.Ext(name)
+		}
+	}
+	assert.NotEmpty(t, bareExt,
+		"expected one bare page.<ext> OriginalName from the colliding pair, got %v", seenNames)
+	assert.NotEmpty(t, indexedExt,
+		"expected one page_NNNN.<ext> OriginalName from the colliding pair, got %v", seenNames)
+	assert.NotEqual(t, bareExt, indexedExt,
+		"the bare and indexed variants must keep their original different extensions, got bare=%q indexed=%q",
+		bareExt, indexedExt)
 }
 
 func TestExtractChapter_Cleanup(t *testing.T) {
