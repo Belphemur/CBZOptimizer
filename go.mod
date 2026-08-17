@@ -11,7 +11,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 	github.com/thediveo/enumflag/v2 v2.2.1
 	golang.org/x/image v0.45.0
 )
